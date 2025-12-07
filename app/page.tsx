@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Waves, Loader2, Clock, Users, AlertCircle, LogOut, Settings, ChevronDown, ChevronUp, Lock, Unlock, History, TrendingUp, X, Edit2, BarChart3, Trash2 } from 'lucide-react';
 
 interface User {
@@ -105,6 +105,166 @@ const KYWashSystem = () => {
     { name: 'Extra 15 min', duration: 45 }
   ];
 
+  // Real-time sync with polling
+  const socketRef = useRef<{ emit: (event: string, data: any) => Promise<void> } | null>(null);
+  const [socketConnected, setSocketConnected] = useState<boolean>(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize real-time sync with polling
+  useEffect(() => {
+    const emit = async (event: string, data: any) => {
+      try {
+        const response = await fetch('/api/state', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ event, data }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.state) {
+            const newState = result.state;
+            
+            // Update machines
+            setMachines(
+              newState.machines.map((m: any) => ({
+                id: parseInt(m.id),
+                type: m.type,
+                status: m.status,
+                timeLeft: m.timeLeft,
+                mode: m.mode || null,
+                locked: m.locked,
+                userStudentId: m.userStudentId || null,
+                userPhone: m.userPhone || null,
+              }))
+            );
+
+            // Update waitlists
+            if (newState.waitlists) {
+              setWaitlists({
+                washers: newState.waitlists.washers || [],
+                dryers: newState.waitlists.dryers || [],
+              });
+            }
+
+            // Update reported issues
+            if (newState.reportedIssues) {
+              setReportedIssues(
+                newState.reportedIssues.map((issue: any) => ({
+                  id: issue.id,
+                  machineType: issue.machineType,
+                  machineId: parseInt(issue.machineId),
+                  reportedBy: issue.reportedBy,
+                  phone: issue.phone,
+                  description: issue.description,
+                  timestamp: issue.timestamp,
+                  date: issue.date,
+                  resolved: issue.resolved,
+                }))
+              );
+            }
+
+            // Update usage history
+            if (newState.usageHistory) {
+              setUsageHistory(
+                newState.usageHistory.map((record: any) => ({
+                  id: record.id,
+                  machineType: record.machineType,
+                  machineId: parseInt(record.machineId),
+                  mode: record.mode,
+                  duration: record.duration,
+                  date: record.date,
+                  studentId: record.studentId,
+                  timestamp: record.timestamp,
+                }))
+              );
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to emit ${event}:`, error);
+      }
+    };
+
+    socketRef.current = { emit };
+    setSocketConnected(true);
+
+    // Start polling for state updates
+    const fetchState = async () => {
+      try {
+        const response = await fetch('/api/state');
+        if (response.ok) {
+          const newState = await response.json();
+
+          // Update machines
+          setMachines(
+            newState.machines.map((m: any) => ({
+              id: parseInt(m.id),
+              type: m.type,
+              status: m.status,
+              timeLeft: m.timeLeft,
+              mode: m.mode || null,
+              locked: m.locked,
+              userStudentId: m.userStudentId || null,
+              userPhone: m.userPhone || null,
+            }))
+          );
+
+          // Update waitlists
+          setWaitlists({
+            washers: newState.waitlists.washers || [],
+            dryers: newState.waitlists.dryers || [],
+          });
+
+          // Update reported issues
+          setReportedIssues(
+            newState.reportedIssues.map((issue: any) => ({
+              id: issue.id,
+              machineType: issue.machineType,
+              machineId: parseInt(issue.machineId),
+              reportedBy: issue.reportedBy,
+              phone: issue.phone,
+              description: issue.description,
+              timestamp: issue.timestamp,
+              date: issue.date,
+              resolved: issue.resolved,
+            }))
+          );
+
+          // Update usage history
+          setUsageHistory(
+            newState.usageHistory.map((record: any) => ({
+              id: record.id,
+              machineType: record.machineType,
+              machineId: parseInt(record.machineId),
+              mode: record.mode,
+              duration: record.duration,
+              date: record.date,
+              studentId: record.studentId,
+              timestamp: record.timestamp,
+            }))
+          );
+        }
+      } catch (error) {
+        console.error('Failed to fetch state:', error);
+      }
+    };
+
+    // Fetch initial state
+    fetchState();
+
+    // Poll every 1 second for real-time updates
+    pollingIntervalRef.current = setInterval(fetchState, 1000);
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setMachines((prev: Machine[]) => prev.map((machine: Machine) => {
@@ -203,6 +363,18 @@ const KYWashSystem = () => {
   const startMachine = (machineId: number, machineType: 'washer' | 'dryer', mode: Mode): void => {
     if (!user) return;
 
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('machine-start', {
+        machineId: String(machineId),
+        machineType: machineType,
+        mode: mode.name,
+        duration: mode.duration,
+        studentId: user.studentId,
+        phoneNumber: user.phoneNumber,
+      });
+    }
+
     setMachines((prev: Machine[]) => prev.map((machine: Machine) => 
       machine.id === machineId && machine.type === machineType
         ? {
@@ -234,6 +406,17 @@ const KYWashSystem = () => {
   };
 
   const cancelMachine = (machineId: number, machineType: 'washer' | 'dryer'): void => {
+    if (!user) return;
+
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('machine-cancel', {
+        machineId: String(machineId),
+        machineType: machineType,
+        studentId: user.studentId,
+      });
+    }
+
     setMachines((prev: Machine[]) => prev.map((machine: Machine) => 
       machine.id === machineId && machine.type === machineType
         ? { ...machine, status: 'available', timeLeft: 0, mode: null, userStudentId: null, userPhone: null }
@@ -244,6 +427,15 @@ const KYWashSystem = () => {
 
   const joinWaitlist = (type: string): void => {
     if (!user) return;
+
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('waitlist-join', {
+        machineType: type,
+        studentId: user.studentId,
+        phoneNumber: user.phoneNumber,
+      });
+    }
 
     const listKey = type === 'washer' ? 'washers' : 'dryers';
     if (!waitlists[listKey].some((u: WaitlistEntry) => u.studentId === user.studentId)) {
@@ -258,6 +450,14 @@ const KYWashSystem = () => {
   const leaveWaitlist = (type: string): void => {
     if (!user) return;
 
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('waitlist-leave', {
+        machineType: type,
+        studentId: user.studentId,
+      });
+    }
+
     const listKey = type === 'washer' ? 'washers' : 'dryers';
     setWaitlists((prev: Waitlists) => ({
       ...prev,
@@ -267,15 +467,40 @@ const KYWashSystem = () => {
   };
 
   const toggleMachineLock = (machineId: number, machineType: 'washer' | 'dryer'): void => {
-    setMachines((prev: Machine[]) => prev.map((machine: Machine) => 
-      machine.id === machineId && machine.type === machineType
-        ? { ...machine, locked: !machine.locked, status: !machine.locked ? 'maintenance' : 'available' }
-        : machine
+    const machine = machines.find((m) => m.id === machineId && m.type === machineType);
+    if (!machine) return;
+
+    const newLockedState = !machine.locked;
+
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('machine-lock', {
+        machineId: String(machineId),
+        machineType: machineType,
+        locked: newLockedState,
+      });
+    }
+
+    setMachines((prev: Machine[]) => prev.map((m: Machine) => 
+      m.id === machineId && m.type === machineType
+        ? { ...m, locked: newLockedState, status: newLockedState ? 'maintenance' : 'available' }
+        : m
     ));
   };
 
   const reportIssue = (): void => {
     if (!user || !selectedMachine) return;
+
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('issue-report', {
+        machineId: String(selectedMachine.id),
+        machineType: selectedMachine.type,
+        reportedBy: user.studentId,
+        phone: user.phoneNumber,
+        description: issueDescription,
+      });
+    }
 
     const newIssue: ReportedIssue = {
       id: Date.now(),
@@ -297,6 +522,14 @@ const KYWashSystem = () => {
   };
 
   const resolveIssue = (issueId: number): void => {
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('issue-resolve', {
+        issueId: String(issueId),
+        resolved: true,
+      });
+    }
+
     setReportedIssues((prev: ReportedIssue[]) => 
       prev.map((issue: ReportedIssue) => 
         issue.id === issueId ? { ...issue, resolved: true } : issue
@@ -305,6 +538,13 @@ const KYWashSystem = () => {
   };
 
   const deleteIssue = (issueId: number): void => {
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('issue-delete', {
+        issueId: String(issueId),
+      });
+    }
+
     setReportedIssues((prev: ReportedIssue[]) => prev.filter((issue: ReportedIssue) => issue.id !== issueId));
   };
 
