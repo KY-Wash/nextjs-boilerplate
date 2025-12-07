@@ -67,8 +67,8 @@ export interface User {
 // Initial state
 export const createInitialState = (): SharedAppState => ({
   machines: [
-    // Washers
-    ...[1, 2, 3].map((id) => ({
+    // Washers (6)
+    ...[1, 2, 3, 4, 5, 6].map((id) => ({
       id: String(id),
       type: 'washer' as const,
       status: 'available' as const,
@@ -78,8 +78,8 @@ export const createInitialState = (): SharedAppState => ({
       userStudentId: '',
       userPhone: '',
     })),
-    // Dryers
-    ...[1, 2, 3].map((id) => ({
+    // Dryers (6)
+    ...[1, 2, 3, 4, 5, 6].map((id) => ({
       id: String(id),
       type: 'dryer' as const,
       status: 'available' as const,

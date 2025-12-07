@@ -25,7 +25,7 @@ interface WaitlistEntry {
 }
 
 interface UsageHistory {
-  id: number;
+  id: string;
   machineType: string;
   machineId: number;
   mode: string;
@@ -36,7 +36,7 @@ interface UsageHistory {
 }
 
 interface ReportedIssue {
-  id: number;
+  id: string;
   machineType: string;
   machineId: number;
   reportedBy: string;
@@ -265,47 +265,90 @@ const KYWashSystem = () => {
     };
   }, []);
 
+  // Timer countdown effect
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMachines((prev: Machine[]) => prev.map((machine: Machine) => {
-        if (machine.status === 'running' && machine.timeLeft > 0) {
-          const newTimeLeft = machine.timeLeft - 1;
-          
-          if (newTimeLeft === 0) {
-            playNotificationSound();
-            showNotification(`${machine.type.charAt(0).toUpperCase() + machine.type.slice(1)} ${machine.id} is now available!`);
-            notifyWaitlist(machine.type);
+    const timerInterval = setInterval(() => {
+      setMachines((prevMachines: Machine[]) => 
+        prevMachines.map((machine: Machine) => {
+          if (machine.status === 'running' && machine.timeLeft > 0) {
+            const newTimeLeft = machine.timeLeft - 1;
             
-            return { ...machine, status: 'available', timeLeft: 0, mode: null, userStudentId: null, userPhone: null };
+            if (newTimeLeft === 0) {
+              // Timer completed
+              playNotificationSound();
+              showNotification(`${machine.type.charAt(0).toUpperCase() + machine.type.slice(1)} ${machine.id} is now available!`);
+              notifyWaitlist(machine.type);
+              
+              return { 
+                ...machine, 
+                status: 'available', 
+                timeLeft: 0, 
+                mode: null, 
+                userStudentId: null, 
+                userPhone: null 
+              };
+            }
+            
+            return { ...machine, timeLeft: newTimeLeft };
           }
-          
-          return { ...machine, timeLeft: newTimeLeft };
-        }
-        return machine;
-      }));
+          return machine;
+        })
+      );
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => clearInterval(timerInterval);
   }, []);
 
   const playNotificationSound = (): void => {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    oscillator.frequency.value = 800;
-    oscillator.type = 'sine';
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5);
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Play alarm sound sequence (beep beep beep)
+      oscillator.frequency.value = 1000;
+      oscillator.type = 'sine';
+      
+      const now = audioContext.currentTime;
+      for (let i = 0; i < 3; i++) {
+        gainNode.gain.setValueAtTime(0.5, now + i * 0.3);
+        gainNode.gain.setValueAtTime(0, now + i * 0.3 + 0.15);
+      }
+      
+      oscillator.start(now);
+      oscillator.stop(now + 1.0);
+    } catch (error) {
+      console.error('Failed to play notification sound:', error);
+    }
   };
 
   const showNotification = (message: string): void => {
+    // Try Web Notifications API first
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        new Notification('KY Wash', {
+          body: message,
+          icon: '/waves.svg',
+          badge: '/waves.svg',
+          tag: 'ky-wash-notification'
+        });
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then((permission) => {
+          if (permission === 'granted') {
+            new Notification('KY Wash', {
+              body: message,
+              icon: '/waves.svg',
+              badge: '/waves.svg',
+              tag: 'ky-wash-notification'
+            });
+          }
+        });
+      }
+    }
+    // Fallback to alert
     alert(message);
   };
 
@@ -389,7 +432,7 @@ const KYWashSystem = () => {
     ));
 
     setUsageHistory((prev: UsageHistory[]) => [...prev, {
-      id: Date.now(),
+      id: `${Date.now()}-${Math.random()}`,
       machineType: machineType,
       machineId: machineId,
       mode: mode.name,
@@ -503,7 +546,7 @@ const KYWashSystem = () => {
     }
 
     const newIssue: ReportedIssue = {
-      id: Date.now(),
+      id: `${Date.now()}-${Math.random()}`,
       machineType: selectedMachine.type,
       machineId: selectedMachine.id,
       reportedBy: user.studentId,
@@ -521,11 +564,11 @@ const KYWashSystem = () => {
     setIssueDescription('');
   };
 
-  const resolveIssue = (issueId: number): void => {
+  const resolveIssue = (issueId: string): void => {
     // Emit to real-time API
     if (socketRef.current?.emit) {
       socketRef.current.emit('issue-resolve', {
-        issueId: String(issueId),
+        issueId: issueId,
         resolved: true,
       });
     }
@@ -537,11 +580,11 @@ const KYWashSystem = () => {
     );
   };
 
-  const deleteIssue = (issueId: number): void => {
+  const deleteIssue = (issueId: string): void => {
     // Emit to real-time API
     if (socketRef.current?.emit) {
       socketRef.current.emit('issue-delete', {
-        issueId: String(issueId),
+        issueId: issueId,
       });
     }
 
@@ -559,6 +602,43 @@ const KYWashSystem = () => {
   const calculateWaitTime = (position: number, type: string): number => {
     const avgTime = type === 'washer' ? 40 : 45;
     return position * avgTime;
+  };
+
+  const analyzeWashingPatterns = (): { peakHours: number[]; suggestedHours: number[]; description: string } => {
+    if (!user || usageHistory.length === 0) {
+      return { peakHours: [], suggestedHours: [], description: 'Not enough data to analyze patterns.' };
+    }
+
+    const userHistory = usageHistory.filter((h: UsageHistory) => h.studentId === user.studentId);
+    if (userHistory.length === 0) {
+      return { peakHours: [], suggestedHours: [], description: 'Start using machines to see pattern analysis.' };
+    }
+
+    // Analyze when the user typically washes (by hour of day)
+    const hourDistribution: Record<number, number> = {};
+    userHistory.forEach((record: UsageHistory) => {
+      const date = new Date(record.timestamp);
+      const hour = date.getHours();
+      hourDistribution[hour] = (hourDistribution[hour] || 0) + 1;
+    });
+
+    // Find peak hours (most usage)
+    const sortedHours = Object.entries(hourDistribution)
+      .sort(([, countA], [, countB]) => countB - countA)
+      .map(([hour]) => parseInt(hour));
+
+    const peakHours = sortedHours.slice(0, 3);
+    
+    // Suggest off-peak hours (least busy - typically late night or early morning)
+    const allHours = Array.from({ length: 24 }, (_, i) => i);
+    const suggestedHours = allHours
+      .filter(h => !peakHours.includes(h))
+      .slice(0, 3)
+      .sort();
+
+    const description = `Your busiest washing times are around ${peakHours.map(h => `${h}:00`).join(', ')}. Consider washing between ${suggestedHours.map(h => `${h}:00`).join(' and ')} for shorter wait times.`;
+
+    return { peakHours, suggestedHours, description };
   };
 
   const formatTime = (seconds: number): string => {
@@ -1332,30 +1412,90 @@ const KYWashSystem = () => {
 
             {/* Stats View */}
             {currentView === 'stats' && user && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
-                  darkMode ? 'bg-gray-800' : 'bg-white'
-                }`}>
-                  <Waves className={`w-12 h-12 mx-auto mb-3 ${darkMode ? 'text-blue-400' : 'text-blue-500'}`} />
-                  <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Washes</p>
-                  <p className={`text-3xl font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>{stats.totalWashes}</p>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
+                    darkMode ? 'bg-gray-800' : 'bg-white'
+                  }`}>
+                    <Waves className={`w-12 h-12 mx-auto mb-3 ${darkMode ? 'text-blue-400' : 'text-blue-500'}`} />
+                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Washes</p>
+                    <p className={`text-3xl font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>{stats.totalWashes}</p>
+                  </div>
+                  <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
+                    darkMode ? 'bg-gray-800' : 'bg-white'
+                  }`}>
+                    <Clock className={`w-12 h-12 mx-auto mb-3 ${darkMode ? 'text-green-400' : 'text-green-500'}`} />
+                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Minutes</p>
+                    <p className={`text-3xl font-bold ${darkMode ? 'text-green-400' : 'text-green-600'}`}>{stats.totalMinutes}</p>
+                  </div>
+                  <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
+                    darkMode ? 'bg-gray-800' : 'bg-white'
+                  }`}>
+                    <TrendingUp className={`w-12 h-12 mx-auto mb-3 ${darkMode ? 'text-purple-400' : 'text-purple-500'}`} />
+                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Avg. Duration</p>
+                    <p className={`text-3xl font-bold ${darkMode ? 'text-purple-400' : 'text-purple-600'}`}>
+                      {stats.totalWashes > 0 ? Math.round(stats.totalMinutes / stats.totalWashes) : 0}m
+                    </p>
+                  </div>
                 </div>
-                <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
-                  darkMode ? 'bg-gray-800' : 'bg-white'
-                }`}>
-                  <Clock className={`w-12 h-12 mx-auto mb-3 ${darkMode ? 'text-green-400' : 'text-green-500'}`} />
-                  <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Minutes</p>
-                  <p className={`text-3xl font-bold ${darkMode ? 'text-green-400' : 'text-green-600'}`}>{stats.totalMinutes}</p>
-                </div>
-                <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
-                  darkMode ? 'bg-gray-800' : 'bg-white'
-                }`}>
-                  <TrendingUp className={`w-12 h-12 mx-auto mb-3 ${darkMode ? 'text-purple-400' : 'text-purple-500'}`} />
-                  <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Avg. Duration</p>
-                  <p className={`text-3xl font-bold ${darkMode ? 'text-purple-400' : 'text-purple-600'}`}>
-                    {stats.totalWashes > 0 ? Math.round(stats.totalMinutes / stats.totalWashes) : 0}m
-                  </p>
-                </div>
+
+                {/* Washing Pattern Analysis */}
+                {(() => {
+                  const patternAnalysis = analyzeWashingPatterns();
+                  return (
+                    <div className={`rounded-lg shadow-md p-6 transition-colors ${
+                      darkMode ? 'bg-gray-800' : 'bg-white'
+                    }`}>
+                      <h3 className={`text-xl font-bold mb-4 flex items-center gap-2 ${
+                        darkMode ? 'text-white' : 'text-gray-800'
+                      }`}>
+                        <BarChart3 className="w-6 h-6" />
+                        Washing Pattern Analysis
+                      </h3>
+                      <p className={`text-sm mb-4 p-4 rounded-lg ${
+                        darkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-50 text-blue-900'
+                      }`}>
+                        {patternAnalysis.description}
+                      </p>
+                      {patternAnalysis.peakHours.length > 0 && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className={`p-4 rounded-lg ${
+                            darkMode ? 'bg-red-900' : 'bg-red-50'
+                          }`}>
+                            <p className={`text-sm font-semibold mb-2 ${
+                              darkMode ? 'text-red-300' : 'text-red-800'
+                            }`}>Peak Hours</p>
+                            <div className="space-y-1">
+                              {patternAnalysis.peakHours.map((hour) => (
+                                <p key={hour} className={`text-lg font-bold ${
+                                  darkMode ? 'text-red-400' : 'text-red-600'
+                                }`}>
+                                  {hour}:00
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                          <div className={`p-4 rounded-lg ${
+                            darkMode ? 'bg-green-900' : 'bg-green-50'
+                          }`}>
+                            <p className={`text-sm font-semibold mb-2 ${
+                              darkMode ? 'text-green-300' : 'text-green-800'
+                            }`}>Suggested Hours</p>
+                            <div className="space-y-1">
+                              {patternAnalysis.suggestedHours.map((hour) => (
+                                <p key={hour} className={`text-lg font-bold ${
+                                  darkMode ? 'text-green-400' : 'text-green-600'
+                                }`}>
+                                  {hour}:00
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -1448,46 +1588,6 @@ const KYWashSystem = () => {
                 className={`w-full px-4 py-2 rounded-lg font-semibold transition-colors ${
                   darkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
                 }`}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Profile Modal */}
-      {showEditProfile && user && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Edit Profile</h3>
-              <button onClick={() => setShowEditProfile(false)} className="text-gray-500 hover:text-gray-700">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Student ID</label>
-                <input
-                  type="text"
-                  value={user.studentId}
-                  disabled
-                  className="w-full px-4 py-2 border rounded-lg bg-gray-100 cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Phone</label>
-                <input
-                  type="text"
-                  value={user.phoneNumber}
-                  disabled
-                  className="w-full px-4 py-2 border rounded-lg bg-gray-100 cursor-not-allowed"
-                />
-              </div>
-              <button
-                onClick={() => setShowEditProfile(false)}
-                className="w-full px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
               >
                 Close
               </button>
