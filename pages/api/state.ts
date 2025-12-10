@@ -1,6 +1,52 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getAppState, updateAppState } from '@/lib/sharedState';
 
+// Track timer intervals globally
+const timerIntervals: Map<string, NodeJS.Timeout> = new Map();
+
+function startServerTimer(machineId: string, machineType: string) {
+  const key = `${machineType}-${machineId}`;
+  
+  // Clear existing timer if any
+  if (timerIntervals.has(key)) {
+    clearInterval(timerIntervals.get(key));
+  }
+  
+  // Create new timer that decrements every 1 second
+  const interval = setInterval(() => {
+    const state = getAppState();
+    const machine = state.machines.find((m) => m.id === machineId && m.type === machineType);
+    
+    if (machine && machine.status === 'running' && machine.timeLeft > 0) {
+      machine.timeLeft = Math.max(0, machine.timeLeft - 1);
+      updateAppState(state);
+      
+      // If timer reached 0, transition to pending-collection
+      if (machine.timeLeft === 0) {
+        machine.status = 'pending-collection';
+        updateAppState(state);
+        // Stop the timer
+        clearInterval(interval);
+        timerIntervals.delete(key);
+      }
+    } else if (machine && machine.status !== 'running') {
+      // Stop timer if machine is no longer running
+      clearInterval(interval);
+      timerIntervals.delete(key);
+    }
+  }, 1000);
+  
+  timerIntervals.set(key, interval);
+}
+
+function stopServerTimer(machineId: string, machineType: string) {
+  const key = `${machineType}-${machineId}`;
+  if (timerIntervals.has(key)) {
+    clearInterval(timerIntervals.get(key));
+    timerIntervals.delete(key);
+  }
+}
+
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -37,7 +83,17 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
             machine.timeLeft = data.duration * 60;
             machine.userStudentId = data.studentId;
             machine.userPhone = data.phoneNumber;
-            // Don't record usage history yet - only when clothes are collected
+            
+            // Automatically remove user from both waitlists when they start a machine
+            state.waitlists.washers = state.waitlists.washers.filter(
+              (entry) => entry.studentId !== data.studentId
+            );
+            state.waitlists.dryers = state.waitlists.dryers.filter(
+              (entry) => entry.studentId !== data.studentId
+            );
+            
+            // Start server-side timer
+            startServerTimer(data.machineId, data.machineType);
           }
           break;
         }
@@ -47,7 +103,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
             (m) => m.id === data.machineId && m.type === data.machineType
           );
           if (machine && machine.userStudentId === data.studentId) {
-            // Don't record to history when user cancels - only when they complete
+            // Stop server timer
+            stopServerTimer(data.machineId, data.machineType);
+            
             machine.status = 'available';
             machine.timeLeft = 0;
             machine.mode = '';
@@ -116,15 +174,21 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         }
 
         case 'timer-tick': {
+          // Client-side timer tick - acknowledge but don't override server timer
+          // Server timer is the source of truth
           const machine = state.machines.find(
             (m) => m.id === data.machineId && m.type === data.machineType
           );
           if (machine && machine.status === 'running') {
-            machine.timeLeft = Math.max(0, data.timeLeft);
+            // Only accept if it matches server state (within 1 second tolerance)
+            if (Math.abs(machine.timeLeft - data.timeLeft) <= 1) {
+              machine.timeLeft = Math.max(0, data.timeLeft);
+            }
             
-            // If timer reached 0, mark as pending-collection waiting for user to collect
+            // If timer reached 0, mark as pending-collection
             if (machine.timeLeft === 0) {
               machine.status = 'pending-collection';
+              stopServerTimer(data.machineId, data.machineType);
             }
           }
           break;
@@ -142,7 +206,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
               machineType: data.machineType,
               machineId: data.machineId,
               mode: machine.mode || '',
-              duration: 0, // Duration would be tracked elsewhere, defaulting to 0
+              duration: 0,
               date: now.toLocaleDateString(),
               studentId: data.studentId,
               timestamp: now.getTime(),
@@ -150,6 +214,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
             state.stats.totalWashes += 1;
 
+            // Stop server timer
+            stopServerTimer(data.machineId, data.machineType);
+            
             // Free up the machine
             machine.status = 'available';
             machine.timeLeft = 0;
@@ -167,6 +234,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
           if (machine) {
             machine.status = data.status;
             machine.locked = data.status === 'maintenance';
+            // Stop any running timer if admin changes status
+            if (data.status !== 'running') {
+              stopServerTimer(data.machineId, data.machineType);
+            }
           }
           break;
         }

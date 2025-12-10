@@ -267,22 +267,17 @@ const KYWashSystem = () => {
     };
   }, []);
 
-  // Timer countdown effect
+  // Timer countdown effect - only for UI display since server handles actual countdown
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setMachines((prevMachines: Machine[]) => {
         const updatedMachines = prevMachines.map((machine: Machine) => {
+          // Only update UI if server hasn't marked as pending-collection yet
           if (machine.status === 'running' && machine.timeLeft > 0) {
             const newTimeLeft = machine.timeLeft - 1;
             
-            // Emit timer-tick to API for persistence
-            if (socketRef.current?.emit) {
-              socketRef.current.emit('timer-tick', {
-                machineId: String(machine.id),
-                machineType: machine.type,
-                timeLeft: newTimeLeft,
-              });
-            }
+            // Server timer is source of truth - we'll get updates via polling
+            // This is just for smoother UI display between polling intervals (every 5 seconds)
             
             if (newTimeLeft === 0) {
               // Timer completed - transition to pending-collection
@@ -389,6 +384,38 @@ const KYWashSystem = () => {
       return;
     }
 
+    // Password validation - check against hardcoded passwords for each student
+    // For MVP, each student ID has a specific password they set
+    // In production, this would query a database with hashed passwords
+    const validPasswords: { [key: string]: string } = {
+      '12345678': '12345678', // Student 1
+      '87654321': '87654321', // Student 2
+      // Add more as needed - in production use database
+    };
+    
+    const correctPassword = validPasswords[studentId];
+    if (!correctPassword) {
+      // If no hardcoded password, accept any valid format on first login (registration)
+      // In production, would need explicit registration flow
+      setLoading(true);
+      setTimeout(() => {
+        setUser({ studentId, phoneNumber });
+        setShowLogin(false);
+        setCurrentView('main');
+        setStudentId('');
+        setPhoneNumber('');
+        setPassword('');
+        setLoading(false);
+      }, 500);
+      return;
+    }
+    
+    // Verify password matches
+    if (password !== correctPassword) {
+      setError('Invalid password for this student ID');
+      return;
+    }
+
     setLoading(true);
     setTimeout(() => {
       setUser({ studentId, phoneNumber });
@@ -415,6 +442,17 @@ const KYWashSystem = () => {
 
   const startMachine = (machineId: number, machineType: 'washer' | 'dryer', mode: Mode): void => {
     if (!user) return;
+
+    // Check if user is already using a machine
+    const userUsingMachine = machines.some((m) => 
+      m.userStudentId === user.studentId && 
+      (m.status === 'running' || m.status === 'pending-collection')
+    );
+    
+    if (userUsingMachine) {
+      alert(`You already have a ${machineType === 'washer' ? 'washer' : 'dryer'} running. Please finish before starting another.`);
+      return;
+    }
 
     // Emit to real-time API
     if (socketRef.current?.emit) {
@@ -477,6 +515,18 @@ const KYWashSystem = () => {
 
   const joinWaitlist = (type: string): void => {
     if (!user) return;
+
+    // Check if user is already using the same machine type
+    const userUsingThisMachine = machines.some((m) => 
+      m.userStudentId === user.studentId && 
+      m.type === type &&
+      (m.status === 'running' || m.status === 'pending-collection')
+    );
+    
+    if (userUsingThisMachine) {
+      alert(`You have already started a ${type}. You cannot join the ${type} waitlist while using one.`);
+      return;
+    }
 
     // Emit to real-time API
     if (socketRef.current?.emit) {
