@@ -1,10 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getAppState, updateAppState } from '@/lib/sharedState';
+import { getAppState, updateAppState, loadPersistedState } from '@/lib/sharedState';
 
 // Track machine start times for accurate timer calculation based on system clock
 const machineStartTimes: Map<string, number> = new Map();
 // Global server timer that runs continuously
 let globalServerTimer: NodeJS.Timeout | null = null;
+// Flag to ensure state is loaded only once
+let stateLoaded = false;
 
 function initializeGlobalTimer() {
   if (globalServerTimer) {
@@ -65,6 +67,12 @@ function stopServerTimer(machineId: string, machineType: string) {
 }
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Load persisted state on first request
+  if (!stateLoaded) {
+    loadPersistedState();
+    stateLoaded = true;
+  }
+
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -103,6 +111,24 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
             machine.userStudentId = data.studentId;
             machine.userPhone = data.phoneNumber;
             
+            // Calculate spending
+            const spending = data.mode === 'Normal' ? 5 : data.mode === 'Extra Wash' ? 6 : 0;
+            
+            // Record in usage history immediately when machine starts
+            const now = new Date();
+            state.usageHistory.push({
+              id: `${Date.now()}-${Math.random()}`,
+              machineType: data.machineType,
+              machineId: data.machineId,
+              mode: data.mode,
+              duration: data.duration,
+              date: now.toLocaleDateString(),
+              studentId: data.studentId,
+              timestamp: now.getTime(),
+              spending: spending,
+              status: 'completed'
+            });
+            
             // Automatically remove user from both waitlists when they start a machine
             state.waitlists.washers = state.waitlists.washers.filter(
               (entry) => entry.studentId !== data.studentId
@@ -124,6 +150,21 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
           if (machine && machine.userStudentId === data.studentId) {
             // Stop server timer
             stopServerTimer(data.machineId, data.machineType);
+            
+            // Mark the usage history entry as cancelled and remove spending
+            state.usageHistory = state.usageHistory.map((h) => {
+              if (h.studentId === data.studentId && 
+                  h.machineType === data.machineType && 
+                  h.machineId === data.machineId &&
+                  h.status === 'completed') {
+                return {
+                  ...h,
+                  status: 'cancelled',
+                  spending: 0
+                };
+              }
+              return h;
+            });
             
             machine.status = 'available';
             machine.timeLeft = 0;
@@ -218,19 +259,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
             (m) => m.id === data.machineId && m.type === data.machineType
           );
           if (machine && machine.userStudentId === data.studentId) {
-            // Now record to usage history when clothes are actually collected
-            const now = new Date();
-            state.usageHistory.push({
-              id: `${Date.now()}-${Math.random()}`,
-              machineType: data.machineType,
-              machineId: data.machineId,
-              mode: machine.mode || '',
-              duration: 0,
-              date: now.toLocaleDateString(),
-              studentId: data.studentId,
-              timestamp: now.getTime(),
-            });
-
             state.stats.totalWashes += 1;
 
             // Stop server timer

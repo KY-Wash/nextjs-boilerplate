@@ -560,20 +560,6 @@ const KYWashSystem = () => {
         : machine
     ));
 
-    // Record in usage history with spending and completed status
-    setUsageHistory((prev: UsageHistory[]) => [...prev, {
-      id: `${Date.now()}-${Math.random()}`,
-      machineType: machineType,
-      machineId: machineId,
-      mode: mode.name,
-      duration: mode.duration,
-      date: new Date().toLocaleDateString(),
-      studentId: user.studentId,
-      timestamp: Date.now(),
-      spending: spending,
-      status: 'completed'
-    }]);
-
     showNotification(`${machineType.charAt(0).toUpperCase() + machineType.slice(1)} ${machineId} started! Phone: ${user.phoneNumber} | Charge: RM${spending}`);
   };
 
@@ -588,24 +574,6 @@ const KYWashSystem = () => {
         studentId: user.studentId,
       });
     }
-
-    // Mark the active usage history entry as cancelled and remove spending
-    setUsageHistory((prev: UsageHistory[]) => 
-      prev.map((h: UsageHistory) => {
-        if (h.studentId === user.studentId && 
-            h.machineType === machineType && 
-            h.machineId === machineId &&
-            h.status === 'completed') {
-          // Mark as cancelled and remove spending
-          return {
-            ...h,
-            status: 'cancelled',
-            spending: 0
-          };
-        }
-        return h;
-      })
-    );
 
     setMachines((prev: Machine[]) => prev.map((machine: Machine) => 
       machine.id === machineId && machine.type === machineType
@@ -1691,6 +1659,7 @@ const KYWashSystem = () => {
                           <>
                             <p className={`text-sm mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Mode: {machine.mode}</p>
                             <p className={`text-sm mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>User: {machine.userStudentId}</p>
+                            <p className={`text-sm mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Phone: {machine.userPhone}</p>
                             <p className={`text-2xl font-bold text-center py-2 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                               {formatTime(machine.timeLeft)}
                             </p>
@@ -1820,6 +1789,7 @@ const KYWashSystem = () => {
                           <>
                             <p className={`text-sm mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Mode: {machine.mode}</p>
                             <p className={`text-sm mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>User: {machine.userStudentId}</p>
+                            <p className={`text-sm mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Phone: {machine.userPhone}</p>
                             <p className={`text-2xl font-bold text-center py-2 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                               {formatTime(machine.timeLeft)}
                             </p>

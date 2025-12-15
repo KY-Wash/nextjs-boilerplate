@@ -1,6 +1,11 @@
 // Shared state across all Socket.IO connections
 // This will be used to maintain consistent state across all users
 
+import fs from 'fs';
+import path from 'path';
+
+const STATE_FILE = path.join(process.cwd(), '.kyWash-state.json');
+
 export interface SharedAppState {
   machines: Machine[];
   waitlists: {
@@ -58,6 +63,8 @@ export interface UsageHistory {
   date: string;
   studentId: string;
   timestamp: number;
+  spending?: number;
+  status?: 'completed' | 'cancelled';
 }
 
 export interface User {
@@ -106,10 +113,34 @@ export const createInitialState = (): SharedAppState => ({
 // Global state instance
 let appState = createInitialState();
 
+// Load persisted state on startup
+export const loadPersistedState = (): void => {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const data = fs.readFileSync(STATE_FILE, 'utf-8');
+      const persistedState = JSON.parse(data);
+      appState = persistedState;
+    }
+  } catch (error) {
+    console.error('Failed to load persisted state:', error);
+  }
+};
+
+// Save state to file
+export const persistState = (): void => {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(appState, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Failed to persist state:', error);
+  }
+};
+
 export const getAppState = (): SharedAppState => appState;
 export const setAppState = (newState: SharedAppState) => {
   appState = newState;
+  persistState();
 };
 export const updateAppState = (updates: Partial<SharedAppState>) => {
   appState = { ...appState, ...updates };
+  persistState();
 };
