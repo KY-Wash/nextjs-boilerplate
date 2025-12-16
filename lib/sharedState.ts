@@ -18,6 +18,7 @@ export interface SharedAppState {
     totalWashes: number;
     totalMinutes: number;
   };
+  users: User[];
 }
 
 export interface Machine {
@@ -64,12 +65,13 @@ export interface UsageHistory {
   studentId: string;
   timestamp: number;
   spending?: number;
-  status?: 'completed' | 'cancelled';
+  status?: 'In Progress' | 'Completed' | 'cancelled';
 }
 
 export interface User {
   studentId: string;
   phoneNumber: string;
+  password: string;
 }
 
 // Initial state
@@ -108,6 +110,7 @@ export const createInitialState = (): SharedAppState => ({
     totalWashes: 0,
     totalMinutes: 0,
   },
+  users: [],
 });
 
 // Global state instance

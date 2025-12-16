@@ -6,6 +6,7 @@ import { Waves, Loader2, Clock, Users, AlertCircle, LogOut, Settings, ChevronDow
 interface User {
   studentId: string;
   phoneNumber: string;
+  password?: string;
 }
 
 interface Machine {
@@ -36,7 +37,7 @@ interface UsageHistory {
   studentId: string;
   timestamp: number;
   spending?: number;
-  status?: 'completed' | 'cancelled';
+  status?: 'In Progress' | 'Completed' | 'cancelled';
 }
 
 interface ReportedIssue {
@@ -102,6 +103,7 @@ const KYWashSystem = () => {
   const [editProfilePassword, setEditProfilePassword] = useState<string>('');
   const [editProfilePasswordConfirm, setEditProfilePasswordConfirm] = useState<string>('');
   const [reportedIssues, setReportedIssues] = useState<ReportedIssue[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [expandedWasherWaitlist, setExpandedWasherWaitlist] = useState<boolean>(false);
   const [expandedDryerWaitlist, setExpandedDryerWaitlist] = useState<boolean>(false);
@@ -194,6 +196,11 @@ const KYWashSystem = () => {
                   status: record.status || 'completed',
                 }))
               );
+            }
+
+            // Update users
+            if (newState.users) {
+              setUsers(newState.users);
             }
           }
         }
@@ -438,22 +445,21 @@ const KYWashSystem = () => {
       return;
     }
 
-    // In-memory user database for passwords and phones
-    const userDatabase: { [key: string]: { phone: string; password: string } } = {
-      '123456': { phone: '01234567890', password: '12345678' },
-      '234567': { phone: '01987654321', password: '87654321' },
-      // Add more users as needed
-    };
-
     if (isRegistering) {
       // REGISTRATION MODE
-      if (userDatabase[studentId]) {
+      if (users.some(u => u.studentId === studentId)) {
         setError('This Student ID is already registered. Please login instead.');
         return;
       }
       
       // Register new user
-      userDatabase[studentId] = { phone: phoneNumber, password: password };
+      if (socketRef.current?.emit) {
+        socketRef.current.emit('user-register', {
+          studentId,
+          phone: phoneNumber,
+          password,
+        });
+      }
       setLoading(true);
       setTimeout(() => {
         setUser({ studentId, phoneNumber });
@@ -468,7 +474,7 @@ const KYWashSystem = () => {
       }, 500);
     } else {
       // LOGIN MODE
-      const userRecord = userDatabase[studentId];
+      const userRecord = users.find(u => u.studentId === studentId);
       
       if (!userRecord) {
         setError('Student ID not found. Please create a new account.');
@@ -476,7 +482,7 @@ const KYWashSystem = () => {
       }
       
       // Validate phone number
-      if (userRecord.phone !== phoneNumber) {
+      if (userRecord.phoneNumber !== phoneNumber) {
         setError('Phone number is incorrect for this account.');
         return;
       }
@@ -912,7 +918,7 @@ const KYWashSystem = () => {
     return usageHistory
       .filter((h: UsageHistory) => 
         h.studentId === studentId && 
-        h.status === 'completed' &&
+        h.status === 'Completed' &&
         new Date(h.timestamp) >= startOfWeek && 
         new Date(h.timestamp) <= endOfWeek
       )
@@ -927,7 +933,7 @@ const KYWashSystem = () => {
     return usageHistory
       .filter((h: UsageHistory) => 
         h.studentId === studentId && 
-        h.status === 'completed' &&
+        h.status === 'Completed' &&
         new Date(h.timestamp) >= startOfMonth && 
         new Date(h.timestamp) <= endOfMonth
       )
@@ -936,7 +942,7 @@ const KYWashSystem = () => {
 
   const calculateTotalSpending = (studentId: string): number => {
     return usageHistory
-      .filter((h: UsageHistory) => h.studentId === studentId && h.status === 'completed')
+      .filter((h: UsageHistory) => h.studentId === studentId && h.status === 'Completed')
       .reduce((sum: number, h: UsageHistory) => sum + (h.spending || 0), 0);
   };
 
@@ -1328,6 +1334,98 @@ const KYWashSystem = () => {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Analytics Dashboard */}
+            <div className={`rounded-lg shadow-md p-6 transition-colors ${
+              darkMode ? 'bg-gray-800' : 'bg-white'
+            }`}>
+              <h2 className={`text-2xl font-bold mb-4 flex items-center gap-2 ${
+                darkMode ? 'text-white' : 'text-gray-800'
+              }`}>
+                <BarChart3 className="w-6 h-6" />
+                Analytics Dashboard
+              </h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                {/* Total Washes */}
+                <div className={`p-4 rounded-lg text-center transition-colors ${
+                  darkMode ? 'bg-blue-900' : 'bg-blue-100'
+                }`}>
+                  <p className={`text-2xl font-bold ${darkMode ? 'text-blue-200' : 'text-blue-800'}`}>
+                    {usageHistory.filter(h => h.machineType === 'washer' && h.status === 'Completed').length}
+                  </p>
+                  <p className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>Total Washer Cycles</p>
+                </div>
+                
+                {/* Total Dryer Cycles */}
+                <div className={`p-4 rounded-lg text-center transition-colors ${
+                  darkMode ? 'bg-green-900' : 'bg-green-100'
+                }`}>
+                  <p className={`text-2xl font-bold ${darkMode ? 'text-green-200' : 'text-green-800'}`}>
+                    {usageHistory.filter(h => h.machineType === 'dryer' && h.status === 'Completed').length}
+                  </p>
+                  <p className={`text-sm ${darkMode ? 'text-green-300' : 'text-green-600'}`}>Total Dryer Cycles</p>
+                </div>
+                
+                {/* Total Revenue */}
+                <div className={`p-4 rounded-lg text-center transition-colors ${
+                  darkMode ? 'bg-yellow-900' : 'bg-yellow-100'
+                }`}>
+                  <p className={`text-2xl font-bold ${darkMode ? 'text-yellow-200' : 'text-yellow-800'}`}>
+                    RM{usageHistory.filter(h => h.status === 'Completed').reduce((sum, h) => sum + (h.spending || 0), 0)}
+                  </p>
+                  <p className={`text-sm ${darkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>Total Revenue</p>
+                </div>
+                
+                {/* Active Machines */}
+                <div className={`p-4 rounded-lg text-center transition-colors ${
+                  darkMode ? 'bg-purple-900' : 'bg-purple-100'
+                }`}>
+                  <p className={`text-2xl font-bold ${darkMode ? 'text-purple-200' : 'text-purple-800'}`}>
+                    {machines.filter(m => m.status === 'running').length}
+                  </p>
+                  <p className={`text-sm ${darkMode ? 'text-purple-300' : 'text-purple-600'}`}>Active Machines</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Washer Usage Breakdown */}
+                <div className={`p-4 rounded-lg transition-colors ${
+                  darkMode ? 'bg-gray-700' : 'bg-gray-50'
+                }`}>
+                  <h3 className="text-lg font-semibold mb-3">Washer Usage</h3>
+                  <div className="space-y-2">
+                    {washerModes.map(mode => {
+                      const count = usageHistory.filter(h => h.machineType === 'washer' && h.mode === mode.name && h.status === 'Completed').length;
+                      return (
+                        <div key={mode.name} className="flex justify-between">
+                          <span>{mode.name} ({mode.duration}min)</span>
+                          <span className="font-semibold">{count} cycles</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Dryer Usage Breakdown */}
+                <div className={`p-4 rounded-lg transition-colors ${
+                  darkMode ? 'bg-gray-700' : 'bg-gray-50'
+                }`}>
+                  <h3 className="text-lg font-semibold mb-3">Dryer Usage</h3>
+                  <div className="space-y-2">
+                    {dryerModes.map(mode => {
+                      const count = usageHistory.filter(h => h.machineType === 'dryer' && h.mode === mode.name && h.status === 'Completed').length;
+                      return (
+                        <div key={mode.name} className="flex justify-between">
+                          <span>{mode.name} ({mode.duration}min)</span>
+                          <span className="font-semibold">{count} cycles</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Current Machines Status */}

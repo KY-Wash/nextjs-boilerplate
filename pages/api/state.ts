@@ -41,6 +41,17 @@ function initializeGlobalTimer() {
           if (machine.timeLeft === 0 && machine.status === 'running') {
             machine.status = 'pending-collection';
             stateChanged = true;
+
+            // Update usage history to 'Completed'
+            const historyRecord = state.usageHistory.find(h => 
+              h.studentId === machine.userStudentId && 
+              h.machineType === machine.type && 
+              h.machineId === machine.id &&
+              h.status === 'In Progress'
+            );
+            if (historyRecord) {
+              historyRecord.status = 'Completed';
+            }
           }
         }
       }
@@ -126,7 +137,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
               studentId: data.studentId,
               timestamp: now.getTime(),
               spending: spending,
-              status: 'completed'
+              status: 'In Progress'
             });
             
             // Automatically remove user from both waitlists when they start a machine
@@ -156,7 +167,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
               if (h.studentId === data.studentId && 
                   h.machineType === data.machineType && 
                   h.machineId === data.machineId &&
-                  h.status === 'completed') {
+                  h.status === 'In Progress') {
                 return {
                   ...h,
                   status: 'cancelled',
@@ -285,6 +296,17 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
             if (data.status !== 'running') {
               stopServerTimer(data.machineId, data.machineType);
             }
+          }
+          break;
+        }
+
+        case 'user-register': {
+          if (!state.users.some(u => u.studentId === data.studentId)) {
+            state.users.push({
+              studentId: data.studentId,
+              phoneNumber: data.phone,
+              password: data.password,
+            });
           }
           break;
         }
