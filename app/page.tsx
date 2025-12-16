@@ -344,16 +344,22 @@ const KYWashSystem = () => {
       const machineKey = `${machine.type}-${machine.id}`;
       
       // Check for 5-minute reminder (300 seconds = 5 minutes)
+      // Only send to user actively using this machine
       if (machine.status === 'running' && machine.timeLeft === 300 && !reminderSentRef.current.has(machineKey)) {
-        reminderSentRef.current.add(machineKey);
-        showNotification(`⏰ Reminder: ${machine.type.charAt(0).toUpperCase() + machine.type.slice(1)} ${machine.id} will be done in 5 minutes!`);
+        if (machine.userStudentId === user?.studentId) {
+          reminderSentRef.current.add(machineKey);
+          showNotification(`⏰ Reminder: Your ${machine.type} ${machine.id} will be done in 5 minutes!`);
+        }
       }
       
       // Check if machine just completed (transitioned to pending-collection)
+      // Only send to user who used this machine
       if (machine.status === 'pending-collection' && !notifiedMachinesRef.current.has(machineKey)) {
-        notifiedMachinesRef.current.add(machineKey);
-        playNotificationSound();
-        showNotification(`${machine.type.charAt(0).toUpperCase() + machine.type.slice(1)} ${machine.id} is complete! Please collect your clothes.`);
+        if (machine.userStudentId === user?.studentId) {
+          notifiedMachinesRef.current.add(machineKey);
+          playNotificationSound();
+          showNotification(`${machine.type.charAt(0).toUpperCase() + machine.type.slice(1)} ${machine.id} is complete! Please collect your clothes.`);
+        }
       }
       
       // Reset notification flags when machine becomes available again
@@ -362,7 +368,7 @@ const KYWashSystem = () => {
         reminderSentRef.current.delete(machineKey);
       }
     });
-  }, [machines]);
+  }, [machines, user?.studentId]);
 
   const playNotificationSound = (): void => {
     try {
@@ -654,11 +660,15 @@ const KYWashSystem = () => {
       });
     }
 
+    // Update local state immediately to show changes on admin page
     setMachines((prev: Machine[]) => prev.map((m: Machine) => 
       m.id === machineId && m.type === machineType
         ? { ...m, locked: newLockedState, status: newLockedState ? 'maintenance' : 'available' }
         : m
     ));
+    
+    // Show notification
+    showNotification(`${machineType.charAt(0).toUpperCase() + machineType.slice(1)} ${machineId} ${newLockedState ? 'locked' : 'unlocked'} successfully!`);
   };
 
   const reportIssue = (): void => {
@@ -904,45 +914,23 @@ const KYWashSystem = () => {
     return 0;
   };
 
-  const calculateWeeklySpending = (studentId: string): number => {
-    const now = new Date();
-    const dayOfWeek = now.getDay();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-    startOfWeek.setHours(0, 0, 0, 0);
-
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6);
-    endOfWeek.setHours(23, 59, 59, 999);
-
+  const calculateTotalWasherSpending = (studentId: string): number => {
     return usageHistory
       .filter((h: UsageHistory) => 
         h.studentId === studentId && 
-        h.status === 'Completed' &&
-        new Date(h.timestamp) >= startOfWeek && 
-        new Date(h.timestamp) <= endOfWeek
+        h.machineType === 'washer' &&
+        h.status === 'Completed'
       )
       .reduce((sum: number, h: UsageHistory) => sum + (h.spending || 0), 0);
   };
 
-  const calculateMonthlySpending = (studentId: string): number => {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
+  const calculateTotalDryerSpending = (studentId: string): number => {
     return usageHistory
       .filter((h: UsageHistory) => 
         h.studentId === studentId && 
-        h.status === 'Completed' &&
-        new Date(h.timestamp) >= startOfMonth && 
-        new Date(h.timestamp) <= endOfMonth
+        h.machineType === 'dryer' &&
+        h.status === 'Completed'
       )
-      .reduce((sum: number, h: UsageHistory) => sum + (h.spending || 0), 0);
-  };
-
-  const calculateTotalSpending = (studentId: string): number => {
-    return usageHistory
-      .filter((h: UsageHistory) => h.studentId === studentId && h.status === 'Completed')
       .reduce((sum: number, h: UsageHistory) => sum + (h.spending || 0), 0);
   };
 
@@ -2005,30 +1993,22 @@ const KYWashSystem = () => {
             {/* Usage History View */}
             {currentView === 'history' && user && (
               <div className="space-y-6">
-                {/* Spending Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Spending Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
                     darkMode ? 'bg-gray-800' : 'bg-white'
                   }`}>
-                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Weekly Spending</p>
+                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Spending (Washers)</p>
                     <p className={`text-3xl font-bold ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
-                      RM{calculateWeeklySpending(user.studentId).toFixed(2)}
+                      RM{calculateTotalWasherSpending(user.studentId).toFixed(2)}
                     </p>
                   </div>
                   <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
                     darkMode ? 'bg-gray-800' : 'bg-white'
                   }`}>
-                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Monthly Spending</p>
+                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Spending (Dryers)</p>
                     <p className={`text-3xl font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
-                      RM{calculateMonthlySpending(user.studentId).toFixed(2)}
-                    </p>
-                  </div>
-                  <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
-                    darkMode ? 'bg-gray-800' : 'bg-white'
-                  }`}>
-                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Spending</p>
-                    <p className={`text-3xl font-bold ${darkMode ? 'text-purple-400' : 'text-purple-600'}`}>
-                      RM{calculateTotalSpending(user.studentId).toFixed(2)}
+                      RM{calculateTotalDryerSpending(user.studentId).toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -2176,10 +2156,37 @@ const KYWashSystem = () => {
                   );
                 })()}
 
-                {/* Weekly System Usage Stats (All Washers & Dryers) */}
+                {/* Weekly Washer Usage Stats */}
                 {(() => {
-                  const weeklyData = getWeeklyStats();
+                  const now = new Date();
+                  const dayOfWeek = now.getDay();
+                  const startOfWeek = new Date(now);
+                  startOfWeek.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+                  startOfWeek.setHours(0, 0, 0, 0);
+
+                  const endOfWeek = new Date(startOfWeek);
+                  endOfWeek.setDate(startOfWeek.getDate() + 6);
+                  endOfWeek.setHours(23, 59, 59, 999);
+
                   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+                  const dayStats: Record<string, number> = {};
+                  days.forEach(day => dayStats[day] = 0);
+
+                  // Count only WASHER usage by day of week
+                  usageHistory.forEach((record: UsageHistory) => {
+                    if (record.machineType === 'washer') {
+                      const recordDate = new Date(record.timestamp);
+                      if (recordDate >= startOfWeek && recordDate <= endOfWeek) {
+                        const day = days[recordDate.getDay() === 0 ? 6 : recordDate.getDay() - 1];
+                        dayStats[day]++;
+                      }
+                    }
+                  });
+
+                  const totalUsage = Object.values(dayStats).reduce((a, b) => a + b, 0);
+                  const avgUsage = totalUsage > 0 ? Math.round(totalUsage / 7) : 0;
+                  const peakDay = Object.entries(dayStats).sort(([, a], [, b]) => b - a)[0]?.[0] || 'N/A';
+
                   return (
                     <div className={`rounded-lg shadow-md p-6 transition-colors ${
                       darkMode ? 'bg-gray-800' : 'bg-white'
@@ -2188,7 +2195,7 @@ const KYWashSystem = () => {
                         darkMode ? 'text-white' : 'text-gray-800'
                       }`}>
                         <BarChart3 className="w-6 h-6" />
-                        Weekly System Usage (All Machines)
+                        Weekly Washers Usage
                       </h3>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                         <div className={`p-4 rounded-lg text-center ${
@@ -2199,7 +2206,7 @@ const KYWashSystem = () => {
                           }`}>Total Uses This Week</p>
                           <p className={`text-3xl font-bold ${
                             darkMode ? 'text-blue-400' : 'text-blue-600'
-                          }`}>{weeklyData.totalUsage}</p>
+                          }`}>{totalUsage}</p>
                         </div>
                         <div className={`p-4 rounded-lg text-center ${
                           darkMode ? 'bg-purple-900' : 'bg-purple-50'
@@ -2209,7 +2216,7 @@ const KYWashSystem = () => {
                           }`}>Peak Day</p>
                           <p className={`text-2xl font-bold ${
                             darkMode ? 'text-purple-400' : 'text-purple-600'
-                          }`}>{weeklyData.peakDay}</p>
+                          }`}>{peakDay}</p>
                         </div>
                         <div className={`p-4 rounded-lg text-center ${
                           darkMode ? 'bg-indigo-900' : 'bg-indigo-50'
@@ -2219,13 +2226,13 @@ const KYWashSystem = () => {
                           }`}>Daily Average</p>
                           <p className={`text-3xl font-bold ${
                             darkMode ? 'text-indigo-400' : 'text-indigo-600'
-                          }`}>{weeklyData.avgUsage}</p>
+                          }`}>{avgUsage}</p>
                         </div>
                       </div>
                       <div className="space-y-2">
                         {days.map((day) => {
-                          const count = weeklyData.dayStats[day] || 0;
-                          const maxCount = Math.max(...Object.values(weeklyData.dayStats));
+                          const count = dayStats[day] || 0;
+                          const maxCount = Math.max(...Object.values(dayStats));
                           const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
                           return (
                             <div key={day} className="space-y-1">
