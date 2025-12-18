@@ -424,6 +424,8 @@ const KYWashSystem = () => {
     alert(message);
   };
 
+  
+
   const notifyWaitlist = (type: string): void => {
     const listKey = type === 'washer' ? 'washers' : 'dryers';
     if (waitlists[listKey].length > 0) {
@@ -1356,16 +1358,6 @@ const KYWashSystem = () => {
                   <p className={`text-sm ${darkMode ? 'text-green-300' : 'text-green-600'}`}>Total Dryer Cycles</p>
                 </div>
                 
-                {/* Total Revenue */}
-                <div className={`p-4 rounded-lg text-center transition-colors ${
-                  darkMode ? 'bg-yellow-900' : 'bg-yellow-100'
-                }`}>
-                  <p className={`text-2xl font-bold ${darkMode ? 'text-yellow-200' : 'text-yellow-800'}`}>
-                    RM{usageHistory.filter(h => h.status === 'Completed').reduce((sum, h) => sum + (h.spending || 0), 0)}
-                  </p>
-                  <p className={`text-sm ${darkMode ? 'text-yellow-300' : 'text-yellow-600'}`}>Total Revenue</p>
-                </div>
-                
                 {/* Active Machines */}
                 <div className={`p-4 rounded-lg text-center transition-colors ${
                   darkMode ? 'bg-purple-900' : 'bg-purple-100'
@@ -1505,7 +1497,14 @@ const KYWashSystem = () => {
                 <button
                   onClick={() => {
                     setUser(null);
-                    setCurrentView('main');
+                    setShowLogin(true);
+                    setShowAdminLogin(false);
+                    setIsRegistering(false);
+                    setStudentId('');
+                    setPhoneNumber('');
+                    setPassword('');
+                    setAdminPassword('');
+                    setError('');
                   }}
                   className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2 ${
                     darkMode
