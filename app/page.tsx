@@ -875,12 +875,14 @@ const KYWashSystem = () => {
     const dayStats: Record<string, number> = {};
     days.forEach(day => dayStats[day] = 0);
 
-    // Count all machine usage (washers and dryers) by day of week
+    // Count all machine usage (washers and dryers) by day of week (exclude cancelled)
     usageHistory.forEach((record: UsageHistory) => {
-      const recordDate = new Date(record.timestamp);
-      if (recordDate >= startOfWeek && recordDate <= endOfWeek) {
-        const day = days[recordDate.getDay() === 0 ? 6 : recordDate.getDay() - 1];
-        dayStats[day]++;
+      if (record.status !== 'cancelled') {
+        const recordDate = new Date(record.timestamp);
+        if (recordDate >= startOfWeek && recordDate <= endOfWeek) {
+          const day = days[recordDate.getDay() === 0 ? 6 : recordDate.getDay() - 1];
+          dayStats[day]++;
+        }
       }
     });
 
@@ -931,33 +933,16 @@ const KYWashSystem = () => {
     return 0;
   };
 
-  const calculateTotalWasherSpending = (studentId: string): number => {
-    return usageHistory
-      .filter((h: UsageHistory) => 
-        h.studentId === studentId && 
-        h.machineType === 'washer' &&
-        h.status === 'Completed'
-      )
-      .reduce((sum: number, h: UsageHistory) => sum + (h.spending || 0), 0);
-  };
-
-  const calculateTotalDryerSpending = (studentId: string): number => {
-    return usageHistory
-      .filter((h: UsageHistory) => 
-        h.studentId === studentId && 
-        h.machineType === 'dryer' &&
-        h.status === 'Completed'
-      )
-      .reduce((sum: number, h: UsageHistory) => sum + (h.spending || 0), 0);
-  };
-
   const getStats = (): { totalWashes: number; totalMinutes: number; mostUsedMode: Record<string, number> } => {
     if (!user) return { totalWashes: 0, totalMinutes: 0, mostUsedMode: {} };
 
-    const totalWashes = usageHistory.filter((h: UsageHistory) => h.studentId === user.studentId).length;
-    const totalMinutes = usageHistory.filter((h: UsageHistory) => h.studentId === user.studentId).reduce((sum: number, h: UsageHistory) => sum + h.duration, 0);
+    // Exclude cancelled records
+    const userHistory = usageHistory.filter((h: UsageHistory) => h.studentId === user.studentId && h.status !== 'cancelled');
     
-    const mostUsedMode = usageHistory.filter((h: UsageHistory) => h.studentId === user.studentId).reduce((acc: Record<string, number>, h: UsageHistory) => {
+    const totalWashes = userHistory.length;
+    const totalMinutes = userHistory.reduce((sum: number, h: UsageHistory) => sum + h.duration, 0);
+    
+    const mostUsedMode = userHistory.reduce((acc: Record<string, number>, h: UsageHistory) => {
       acc[h.mode] = (acc[h.mode] || 0) + 1;
       return acc;
     }, {});
@@ -2010,26 +1995,6 @@ const KYWashSystem = () => {
             {/* Usage History View */}
             {currentView === 'history' && user && (
               <div className="space-y-6">
-            {/* Spending Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
-                    darkMode ? 'bg-gray-800' : 'bg-white'
-                  }`}>
-                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Spending (Washers)</p>
-                    <p className={`text-3xl font-bold ${darkMode ? 'text-green-400' : 'text-green-600'}`}>
-                      RM{calculateTotalWasherSpending(user.studentId).toFixed(2)}
-                    </p>
-                  </div>
-                  <div className={`rounded-lg shadow-md p-6 text-center transition-colors ${
-                    darkMode ? 'bg-gray-800' : 'bg-white'
-                  }`}>
-                    <p className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Spending (Dryers)</p>
-                    <p className={`text-3xl font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
-                      RM{calculateTotalDryerSpending(user.studentId).toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-
                 {/* Usage History Table */}
                 <div className={`rounded-lg shadow-md p-6 transition-colors ${
                   darkMode ? 'bg-gray-800' : 'bg-white'
@@ -2189,9 +2154,9 @@ const KYWashSystem = () => {
                   const dayStats: Record<string, number> = {};
                   days.forEach(day => dayStats[day] = 0);
 
-                  // Count only WASHER usage by day of week
+                  // Count only WASHER usage by day of week (exclude cancelled)
                   usageHistory.forEach((record: UsageHistory) => {
-                    if (record.machineType === 'washer') {
+                    if (record.machineType === 'washer' && record.status !== 'cancelled') {
                       const recordDate = new Date(record.timestamp);
                       if (recordDate >= startOfWeek && recordDate <= endOfWeek) {
                         const day = days[recordDate.getDay() === 0 ? 6 : recordDate.getDay() - 1];
@@ -2423,7 +2388,7 @@ const KYWashSystem = () => {
                   days.forEach(day => dayStats[day] = 0);
 
                   usageHistory.forEach((record: UsageHistory) => {
-                    if (record.machineType === 'dryer') {
+                    if (record.machineType === 'dryer' && record.status !== 'cancelled') {
                       const recordDate = new Date(record.timestamp);
                       if (recordDate >= startOfWeek && recordDate <= endOfWeek) {
                         const day = days[recordDate.getDay() === 0 ? 6 : recordDate.getDay() - 1];

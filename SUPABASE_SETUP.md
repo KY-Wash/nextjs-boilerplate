@@ -28,25 +28,25 @@
 -- Create usage_history table
 CREATE TABLE usage_history (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  student_id varchar(255) NOT NULL,
-  phone_number varchar(20) NOT NULL,
-  machine_type varchar(50) NOT NULL,
-  machine_id integer NOT NULL,
-  mode varchar(100) NOT NULL,
-  duration integer NOT NULL,
-  spending decimal(10, 2) NOT NULL,
-  status varchar(50) NOT NULL,
-  date varchar(50) NOT NULL,
-  timestamp bigint NOT NULL,
-  created_at timestamp DEFAULT NOW(),
-  updated_at timestamp DEFAULT NOW()
-);
+    student_id varchar(255) NOT NULL,
+      phone_number varchar(20) NOT NULL,
+        machine_type varchar(50) NOT NULL,
+          machine_id integer NOT NULL,
+            mode varchar(100) NOT NULL,
+              duration integer NOT NULL,
+                spending decimal(10, 2) NOT NULL,
+                  status varchar(50) NOT NULL,
+                    date varchar(50) NOT NULL,
+                      timestamp bigint NOT NULL,
+                        created_at timestamp DEFAULT NOW(),
+                          updated_at timestamp DEFAULT NOW()
+                          );
 
--- Create index for faster queries
-CREATE INDEX idx_student_id ON usage_history(student_id);
-CREATE INDEX idx_machine_type ON usage_history(machine_type);
-CREATE INDEX idx_timestamp ON usage_history(timestamp);
-CREATE INDEX idx_status ON usage_history(status);
+                          -- Create index for faster queries
+                          CREATE INDEX idx_student_id ON usage_history(student_id);
+                          CREATE INDEX idx_machine_type ON usage_history(machine_type);
+                          CREATE INDEX idx_timestamp ON usage_history(timestamp);
+                          CREATE INDEX idx_status ON usage_history(status);
 ```
 
 4. Click **Run**
