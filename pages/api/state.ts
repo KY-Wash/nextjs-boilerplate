@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getAppState, updateAppState, loadPersistedState } from '@/lib/sharedState';
-import { supabase } from '@/lib/supabase';
 
 // Track machine start times for accurate timer calculation based on system clock
 const machineStartTimes: Map<string, number> = new Map();

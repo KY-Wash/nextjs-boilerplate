@@ -37,6 +37,7 @@ interface UsageHistory {
   duration: number;
   date: string;
   studentId: string;
+  phoneNumber?: string; // User's phone number
   timestamp: number;
   spending?: number;
   status?: 'In Progress' | 'Completed' | 'cancelled';
@@ -1181,7 +1182,20 @@ const KYWashSystem = () => {
         {/* Admin Panel */}
         {currentView === 'admin' && !user && (
           <div className="space-y-6">
-            <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Admin Panel</h1>
+            <div className="flex justify-between items-center">
+              <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Admin Panel</h1>
+              <button
+                onClick={() => setCurrentView('main')}
+                className={`px-4 py-2 rounded font-semibold transition-colors flex items-center gap-2 ${
+                  darkMode 
+                    ? 'bg-gray-700 hover:bg-gray-600 text-white' 
+                    : 'bg-gray-300 hover:bg-gray-400 text-black'
+                }`}
+              >
+                <LogOut className="w-5 h-5" />
+                Back to Login
+              </button>
+            </div>
 
             {/* Machine Lock Control */}
             <div className={`rounded-lg shadow-md p-6 transition-colors ${
