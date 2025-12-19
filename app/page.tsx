@@ -281,8 +281,8 @@ const KYWashSystem = () => {
     // Fetch initial state
     fetchState();
 
-    // Poll every 500ms (twice per second) for smooth timer display every 1 second
-    pollingIntervalRef.current = setInterval(fetchState, 500);
+    // Poll every 1000ms (once per second) to match timer decrements
+    pollingIntervalRef.current = setInterval(fetchState, 1000);
 
     return () => {
       if (pollingIntervalRef.current) {
@@ -291,35 +291,14 @@ const KYWashSystem = () => {
     };
   }, []);
 
-  // Continuous local timer countdown for running machines
+  // Continuous local timer countdown for running machines - synced with server timer
+  // This only uses the server-provided timeLeft value from polling, no local decrements
   useEffect(() => {
-    const timerInterval = setInterval(() => {
-      setMachines((prevMachines: Machine[]) => {
-        return prevMachines.map((machine: Machine) => {
-          if (machine.status === 'running' && machine.timeLeft > 0) {
-            const newTimeLeft = machine.timeLeft - 1;
-            
-            // Check if machine just completed
-            if (newTimeLeft <= 0) {
-              // Emit completion event
-              if (socketRef.current?.emit) {
-                socketRef.current.emit('machine-complete', {
-                  machineId: String(machine.id),
-                  machineType: machine.type,
-                  studentId: machine.userStudentId,
-                });
-              }
-              return { ...machine, timeLeft: 0, status: 'pending-collection' };
-            }
-            
-            return { ...machine, timeLeft: newTimeLeft };
-          }
-          return machine;
-        });
-      });
-    }, 1000);
-
-    return () => clearInterval(timerInterval);
+    // Timer display update is only via polling from server
+    // The server manages the actual countdown
+    return () => {
+      // No cleanup needed for this timer approach
+    };
   }, []);
 
   // Persist usage history to localStorage whenever it changes
@@ -1007,16 +986,21 @@ const KYWashSystem = () => {
   const generateCSV = (data: UsageHistory[]): string => {
     if (data.length === 0) return '';
     
-    const headers = ['Student ID', 'Type', 'Machine ID', 'Mode', 'Duration (min)', 'Spending (RM)', 'Date'];
-    const rows = data.map((record: UsageHistory) => [
-      record.studentId,
-      record.machineType,
-      record.machineId,
-      record.mode,
-      record.duration,
-      record.spending || 0,
-      record.date
-    ]);
+    const headers = ['Date', 'Time', 'Student ID', 'Type', 'Machine ID', 'Mode', 'Duration (min)', 'Spending (RM)'];
+    const rows = data.map((record: UsageHistory) => {
+      const recordTime = new Date(record.timestamp);
+      const timeString = recordTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return [
+        record.date,
+        timeString,
+        record.studentId,
+        record.machineType,
+        record.machineId,
+        record.mode,
+        record.duration,
+        record.spending || 0
+      ];
+    });
     
     const csvContent = [
       headers.join(','),
@@ -1502,15 +1486,27 @@ const KYWashSystem = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {machines.map((machine: Machine) => (
                   <div key={`${machine.type}-${machine.id}`} className={`p-4 rounded-lg border-2 transition-colors ${
-                    machine.status === 'available' 
+                    machine.locked
+                      ? darkMode ? 'border-red-600 bg-red-900' : 'border-red-500 bg-red-50'
+                      : machine.status === 'available' 
                       ? darkMode ? 'border-green-600 bg-green-900' : 'border-green-500 bg-green-50'
                       : machine.status === 'running'
                       ? darkMode ? 'border-yellow-600 bg-yellow-900' : 'border-yellow-500 bg-yellow-50'
                       : darkMode ? 'border-red-600 bg-red-900' : 'border-red-500 bg-red-50'
                   }`}>
                     <p className={`font-semibold capitalize ${darkMode ? 'text-white' : 'text-gray-800'}`}>{machine.type} {machine.id}</p>
-                    <p className={`text-sm capitalize ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{machine.status}</p>
-                    {machine.status === 'running' && (
+                    <p className={`text-sm capitalize font-semibold ${
+                      machine.locked
+                        ? darkMode ? 'text-red-400' : 'text-red-600'
+                        : machine.status === 'available'
+                        ? darkMode ? 'text-green-400' : 'text-green-600'
+                        : machine.status === 'running'
+                        ? darkMode ? 'text-yellow-400' : 'text-yellow-600'
+                        : darkMode ? 'text-red-400' : 'text-red-600'
+                    }`}>
+                      {machine.locked ? 'NOT AVAILABLE' : machine.status}
+                    </p>
+                    {machine.status === 'running' && !machine.locked && (
                       <>
                         <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>User: {machine.userStudentId}</p>
                         <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Time Left: {formatTime(machine.timeLeft)}</p>
@@ -1676,6 +1672,7 @@ const KYWashSystem = () => {
                         <th className="px-4 py-2 text-left font-semibold">Mode</th>
                         <th className="px-4 py-2 text-left font-semibold">Duration (min)</th>
                         <th className="px-4 py-2 text-left font-semibold">Spending (RM)</th>
+                        <th className="px-4 py-2 text-left font-semibold">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1699,6 +1696,13 @@ const KYWashSystem = () => {
                             <td className="px-4 py-2">{record.mode}</td>
                             <td className="px-4 py-2">{record.duration}</td>
                             <td className="px-4 py-2 font-semibold">{record.spending || 0}</td>
+                            <td className={`px-4 py-2 font-semibold ${
+                              record.status === 'cancelled'
+                                ? darkMode ? 'text-red-400' : 'text-red-600'
+                                : darkMode ? 'text-green-400' : 'text-green-600'
+                            }`}>
+                              {record.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                            </td>
                           </tr>
                         );
                       })}
