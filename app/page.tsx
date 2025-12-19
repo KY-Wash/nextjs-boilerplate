@@ -1536,50 +1536,55 @@ const KYWashSystem = () => {
                   )}
                 </div>
               </div>
+            </div>
               
-              {/* Usage Data Table (Admin View) */}
-              <div className={`rounded-lg shadow-md p-6 transition-colors ${
-                darkMode ? 'bg-gray-800' : 'bg-white'
-              }`}>
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h2 className={`text-2xl font-bold mb-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
-                      Usage History
-                    </h2>
-                    <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Current month: {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                    </p>
-                  </div>
-                  <button
-                    onClick={downloadCSV}
-                    className={`px-4 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2 ${
-                      darkMode
-                        ? 'bg-blue-700 hover:bg-blue-600 text-white'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                    }`}
-                  >
-                    Download CSV
-                  </button>
+            {/* Usage Data Table (Admin View) */}
+            <div className={`rounded-lg shadow-md p-6 transition-colors ${
+              darkMode ? 'bg-gray-800' : 'bg-white'
+            }`}>
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h2 className={`text-2xl font-bold mb-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+                    Usage History
+                  </h2>
+                  <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Current month: {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </p>
                 </div>
+                <button
+                  onClick={downloadCSV}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2 ${
+                    darkMode
+                      ? 'bg-blue-700 hover:bg-blue-600 text-white'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
+                >
+                  Download CSV
+                </button>
+              </div>
 
-                {getCurrentMonthData().length === 0 ? (
-                  <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>No usage data available for this month</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className={`w-full border-collapse ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                      <thead>
-                        <tr className={`border-b-2 ${darkMode ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-100'}`}>
-                          <th className="px-4 py-2 text-left font-semibold">Student ID</th>
-                          <th className="px-4 py-2 text-left font-semibold">Type</th>
-                          <th className="px-4 py-2 text-left font-semibold">Machine ID</th>
-                          <th className="px-4 py-2 text-left font-semibold">Mode</th>
-                          <th className="px-4 py-2 text-left font-semibold">Duration (min)</th>
-                          <th className="px-4 py-2 text-left font-semibold">Spending (RM)</th>
-                          <th className="px-4 py-2 text-left font-semibold">Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {getCurrentMonthData().map((record: UsageHistory, idx: number) => (
+              {getCurrentMonthData().length === 0 ? (
+                <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>No usage data available for this month</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className={`w-full border-collapse ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                    <thead>
+                      <tr className={`border-b-2 ${darkMode ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-100'}`}>
+                        <th className="px-4 py-2 text-left font-semibold">Date</th>
+                        <th className="px-4 py-2 text-left font-semibold">Time</th>
+                        <th className="px-4 py-2 text-left font-semibold">Student ID</th>
+                        <th className="px-4 py-2 text-left font-semibold">Type</th>
+                        <th className="px-4 py-2 text-left font-semibold">Machine ID</th>
+                        <th className="px-4 py-2 text-left font-semibold">Mode</th>
+                        <th className="px-4 py-2 text-left font-semibold">Duration (min)</th>
+                        <th className="px-4 py-2 text-left font-semibold">Spending (RM)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getCurrentMonthData().map((record: UsageHistory, idx: number) => {
+                        const recordTime = new Date(record.timestamp);
+                        const timeString = recordTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        return (
                           <tr
                             key={`${record.id}-${idx}`}
                             className={`border-b transition-colors ${
@@ -1588,45 +1593,46 @@ const KYWashSystem = () => {
                                 : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50 hover:bg-gray-100'
                             }`}
                           >
+                            <td className="px-4 py-2">{record.date}</td>
+                            <td className="px-4 py-2">{timeString}</td>
                             <td className="px-4 py-2">{record.studentId}</td>
                             <td className="px-4 py-2 capitalize">{record.machineType}</td>
                             <td className="px-4 py-2">{record.machineId}</td>
                             <td className="px-4 py-2">{record.mode}</td>
                             <td className="px-4 py-2">{record.duration}</td>
                             <td className="px-4 py-2 font-semibold">{record.spending || 0}</td>
-                            <td className="px-4 py-2">{record.date}</td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
               
-              {/* Back to Login Button */}
-              <div className="mt-8 flex justify-center">
-                <button
-                  onClick={() => {
-                    setUser(null);
-                    setShowLogin(true);
-                    setShowAdminLogin(false);
-                    setIsRegistering(false);
-                    setStudentId('');
-                    setPhoneNumber('');
-                    setPassword('');
-                    setAdminPassword('');
-                    setError('');
-                  }}
-                  className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2 ${
-                    darkMode
-                      ? 'bg-red-700 hover:bg-red-600 text-white'
-                      : 'bg-red-500 hover:bg-red-600 text-white'
-                  }`}
-                >
-                  <LogOut className="w-5 h-5" />
-                  Return to Login
-                </button>
-              </div>
+            {/* Back to Login Button */}
+            <div className="mt-8 flex justify-center">
+              <button
+                onClick={() => {
+                  setUser(null);
+                  setShowLogin(true);
+                  setShowAdminLogin(false);
+                  setIsRegistering(false);
+                  setStudentId('');
+                  setPhoneNumber('');
+                  setPassword('');
+                  setAdminPassword('');
+                  setError('');
+                }}
+                className={`px-6 py-3 rounded-lg font-semibold transition-colors flex items-center gap-2 ${
+                  darkMode
+                    ? 'bg-red-700 hover:bg-red-600 text-white'
+                    : 'bg-red-500 hover:bg-red-600 text-white'
+                }`}
+              >
+                <LogOut className="w-5 h-5" />
+                Return to Login
+              </button>
             </div>
           </div>
         )}
