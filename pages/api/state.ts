@@ -316,6 +316,11 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
           break;
         }
 
+        case 'usage-history-delete': {
+          state.usageHistory = state.usageHistory.filter((record) => record.id !== data.recordId);
+          break;
+        }
+
         case 'machine-lock': {
           const machine = state.machines.find(
             (m) => m.id === data.machineId && m.type === data.machineType

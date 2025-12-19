@@ -34,6 +34,7 @@ interface UsageHistory {
   mode: string;
   duration: number;
   date: string;
+  days?: string;
   studentId: string;
   timestamp: number;
   spending?: number;
@@ -109,6 +110,8 @@ const KYWashSystem = () => {
   const [expandedDryerWaitlist, setExpandedDryerWaitlist] = useState<boolean>(false);
   const [selectedFilterMonth, setSelectedFilterMonth] = useState<number>(new Date().getMonth());
   const [selectedFilterYear, setSelectedFilterYear] = useState<number>(new Date().getFullYear());
+  const [selectedFilterWeek, setSelectedFilterWeek] = useState<string>('all'); // 'all', 'monday', 'tuesday', etc.
+  const [selectedFilterDayOfWeek, setSelectedFilterDayOfWeek] = useState<number>(-1); // -1 means all days
 
   const washerModes: Mode[] = [
     { name: 'Normal', duration: 30 },
@@ -281,7 +284,7 @@ const KYWashSystem = () => {
     // Fetch initial state
     fetchState();
 
-    // Poll every 1000ms (once per second) to match timer decrements
+    // Poll every 1000ms (1 per second) for accurate timer display
     pollingIntervalRef.current = setInterval(fetchState, 1000);
 
     return () => {
@@ -291,14 +294,35 @@ const KYWashSystem = () => {
     };
   }, []);
 
-  // Continuous local timer countdown for running machines - synced with server timer
-  // This only uses the server-provided timeLeft value from polling, no local decrements
+  // Continuous local timer countdown for running machines
   useEffect(() => {
-    // Timer display update is only via polling from server
-    // The server manages the actual countdown
-    return () => {
-      // No cleanup needed for this timer approach
-    };
+    const timerInterval = setInterval(() => {
+      setMachines((prevMachines: Machine[]) => {
+        return prevMachines.map((machine: Machine) => {
+          if (machine.status === 'running' && machine.timeLeft > 0) {
+            const newTimeLeft = machine.timeLeft - 1;
+            
+            // Check if machine just completed
+            if (newTimeLeft <= 0) {
+              // Emit completion event
+              if (socketRef.current?.emit) {
+                socketRef.current.emit('machine-complete', {
+                  machineId: String(machine.id),
+                  machineType: machine.type,
+                  studentId: machine.userStudentId,
+                });
+              }
+              return { ...machine, timeLeft: 0, status: 'pending-collection' };
+            }
+            
+            return { ...machine, timeLeft: newTimeLeft };
+          }
+          return machine;
+        });
+      });
+    }, 1000);
+
+    return () => clearInterval(timerInterval);
   }, []);
 
   // Persist usage history to localStorage whenever it changes
@@ -317,6 +341,13 @@ const KYWashSystem = () => {
     }
   }, [user]);
 
+  // Persist users list to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('kyWashUsers', JSON.stringify(users));
+    }
+  }, [users]);
+
   // Load usage history from localStorage on component mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -327,6 +358,17 @@ const KYWashSystem = () => {
           setUsageHistory(parsedHistory);
         } catch (error) {
           console.error('Failed to load history from localStorage:', error);
+        }
+      }
+
+      // Load users from localStorage if available
+      const savedUsers = localStorage.getItem('kyWashUsers');
+      if (savedUsers) {
+        try {
+          const parsedUsers = JSON.parse(savedUsers);
+          setUsers(parsedUsers);
+        } catch (error) {
+          console.error('Failed to load users from localStorage:', error);
         }
       }
       
@@ -745,6 +787,17 @@ const KYWashSystem = () => {
     setReportedIssues((prev: ReportedIssue[]) => prev.filter((issue: ReportedIssue) => issue.id !== issueId));
   };
 
+  const deleteUsageHistoryEntry = (recordId: string): void => {
+    // Emit to real-time API
+    if (socketRef.current?.emit) {
+      socketRef.current.emit('usage-history-delete', {
+        recordId: recordId,
+      });
+    }
+
+    setUsageHistory((prev: UsageHistory[]) => prev.filter((record: UsageHistory) => record.id !== recordId));
+  };
+
   const clothesCollected = (machineId: number, machineType: 'washer' | 'dryer'): void => {
     if (!user) return;
 
@@ -922,6 +975,12 @@ const KYWashSystem = () => {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  const getDayName = (timestamp: number): string => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const date = new Date(timestamp);
+    return days[date.getDay()];
+  };
+
   const getSpendingForMode = (mode: string): number => {
     if (mode === 'Normal') return 5;
     if (mode.includes('Extra')) return 6; // Handles both 'Extra Wash' and 'Extra Dry'
@@ -976,31 +1035,38 @@ const KYWashSystem = () => {
 
   // Get usage history for selected month/year (for admin filtering)
   const getFilteredUsageHistory = (): UsageHistory[] => {
-    return usageHistory.filter((record: UsageHistory) => {
+    let filtered = usageHistory.filter((record: UsageHistory) => {
       const recordDate = new Date(record.date);
       return recordDate.getMonth() === selectedFilterMonth && recordDate.getFullYear() === selectedFilterYear;
     });
+
+    // Apply weekly filter if selected
+    if (selectedFilterDayOfWeek >= 0) {
+      filtered = filtered.filter((record: UsageHistory) => {
+        const recordDate = new Date(record.timestamp);
+        return recordDate.getDay() === selectedFilterDayOfWeek;
+      });
+    }
+
+    return filtered;
   };
 
   // Generate CSV from data
   const generateCSV = (data: UsageHistory[]): string => {
     if (data.length === 0) return '';
     
-    const headers = ['Date', 'Time', 'Student ID', 'Type', 'Machine ID', 'Mode', 'Duration (min)', 'Spending (RM)'];
-    const rows = data.map((record: UsageHistory) => {
-      const recordTime = new Date(record.timestamp);
-      const timeString = recordTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      return [
-        record.date,
-        timeString,
-        record.studentId,
-        record.machineType,
-        record.machineId,
-        record.mode,
-        record.duration,
-        record.spending || 0
-      ];
-    });
+    const headers = ['Student ID', 'Type', 'Machine ID', 'Mode', 'Duration (min)', 'Spending (RM)', 'Status', 'Days', 'Date'];
+    const rows = data.map((record: UsageHistory) => [
+      record.studentId,
+      record.machineType,
+      record.machineId,
+      record.mode,
+      record.duration,
+      record.spending || 0,
+      record.status || 'Completed',
+      record.days || getDayName(record.timestamp),
+      record.date
+    ]);
     
     const csvContent = [
       headers.join(','),
@@ -1055,7 +1121,6 @@ const KYWashSystem = () => {
                   setUser(null);
                   setCurrentView('main');
                   setShowLogin(true);
-                  setUsageHistory([]);
                 }}
                 className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
               >
@@ -1486,27 +1551,15 @@ const KYWashSystem = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {machines.map((machine: Machine) => (
                   <div key={`${machine.type}-${machine.id}`} className={`p-4 rounded-lg border-2 transition-colors ${
-                    machine.locked
-                      ? darkMode ? 'border-red-600 bg-red-900' : 'border-red-500 bg-red-50'
-                      : machine.status === 'available' 
+                    machine.status === 'available' 
                       ? darkMode ? 'border-green-600 bg-green-900' : 'border-green-500 bg-green-50'
                       : machine.status === 'running'
                       ? darkMode ? 'border-yellow-600 bg-yellow-900' : 'border-yellow-500 bg-yellow-50'
                       : darkMode ? 'border-red-600 bg-red-900' : 'border-red-500 bg-red-50'
                   }`}>
                     <p className={`font-semibold capitalize ${darkMode ? 'text-white' : 'text-gray-800'}`}>{machine.type} {machine.id}</p>
-                    <p className={`text-sm capitalize font-semibold ${
-                      machine.locked
-                        ? darkMode ? 'text-red-400' : 'text-red-600'
-                        : machine.status === 'available'
-                        ? darkMode ? 'text-green-400' : 'text-green-600'
-                        : machine.status === 'running'
-                        ? darkMode ? 'text-yellow-400' : 'text-yellow-600'
-                        : darkMode ? 'text-red-400' : 'text-red-600'
-                    }`}>
-                      {machine.locked ? 'NOT AVAILABLE' : machine.status}
-                    </p>
-                    {machine.status === 'running' && !machine.locked && (
+                    <p className={`text-sm capitalize ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{machine.status}</p>
+                    {machine.status === 'running' && (
                       <>
                         <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>User: {machine.userStudentId}</p>
                         <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Time Left: {formatTime(machine.timeLeft)}</p>
@@ -1632,6 +1685,29 @@ const KYWashSystem = () => {
                       })}
                     </select>
                   </div>
+                  <div>
+                    <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      Weekly Filter
+                    </label>
+                    <select
+                      value={selectedFilterDayOfWeek}
+                      onChange={(e) => setSelectedFilterDayOfWeek(parseInt(e.target.value))}
+                      className={`px-3 py-2 rounded-lg border transition-colors ${
+                        darkMode
+                          ? 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600'
+                          : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50'
+                      }`}
+                    >
+                      <option value={-1}>All Days</option>
+                      <option value={0}>Sunday</option>
+                      <option value={1}>Monday</option>
+                      <option value={2}>Tuesday</option>
+                      <option value={3}>Wednesday</option>
+                      <option value={4}>Thursday</option>
+                      <option value={5}>Friday</option>
+                      <option value={6}>Saturday</option>
+                    </select>
+                  </div>
                   <button
                     onClick={() => {
                       const data = getFilteredUsageHistory();
@@ -1658,13 +1734,14 @@ const KYWashSystem = () => {
               </div>
 
               {getFilteredUsageHistory().length === 0 ? (
-                <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>No usage data available for the selected month</p>
+                <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>No usage data available for the selected filters</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className={`w-full border-collapse ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>
                     <thead>
                       <tr className={`border-b-2 ${darkMode ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-100'}`}>
                         <th className="px-4 py-2 text-left font-semibold">Date</th>
+                        <th className="px-4 py-2 text-left font-semibold">Day</th>
                         <th className="px-4 py-2 text-left font-semibold">Time</th>
                         <th className="px-4 py-2 text-left font-semibold">Student ID</th>
                         <th className="px-4 py-2 text-left font-semibold">Type</th>
@@ -1673,12 +1750,14 @@ const KYWashSystem = () => {
                         <th className="px-4 py-2 text-left font-semibold">Duration (min)</th>
                         <th className="px-4 py-2 text-left font-semibold">Spending (RM)</th>
                         <th className="px-4 py-2 text-left font-semibold">Status</th>
+                        <th className="px-4 py-2 text-left font-semibold">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {getFilteredUsageHistory().map((record: UsageHistory, idx: number) => {
                         const recordTime = new Date(record.timestamp);
                         const timeString = recordTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        const dayName = getDayName(record.timestamp);
                         return (
                           <tr
                             key={`${record.id}-${idx}`}
@@ -1689,6 +1768,7 @@ const KYWashSystem = () => {
                             }`}
                           >
                             <td className="px-4 py-2">{record.date}</td>
+                            <td className="px-4 py-2">{dayName}</td>
                             <td className="px-4 py-2">{timeString}</td>
                             <td className="px-4 py-2">{record.studentId}</td>
                             <td className="px-4 py-2 capitalize">{record.machineType}</td>
@@ -1697,11 +1777,19 @@ const KYWashSystem = () => {
                             <td className="px-4 py-2">{record.duration}</td>
                             <td className="px-4 py-2 font-semibold">{record.spending || 0}</td>
                             <td className={`px-4 py-2 font-semibold ${
-                              record.status === 'cancelled'
+                              record.status === 'cancelled' 
                                 ? darkMode ? 'text-red-400' : 'text-red-600'
                                 : darkMode ? 'text-green-400' : 'text-green-600'
-                            }`}>
-                              {record.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                            }`}>{record.status || 'Completed'}</td>
+                            <td className="px-4 py-2">
+                              <button
+                                onClick={() => deleteUsageHistoryEntry(record.id)}
+                                className={`px-3 py-1 rounded text-sm font-semibold transition-colors ${
+                                  darkMode ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'
+                                }`}
+                              >
+                                <Trash2 className="w-4 h-4 inline" />
+                              </button>
                             </td>
                           </tr>
                         );
