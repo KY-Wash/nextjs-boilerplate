@@ -1354,15 +1354,27 @@ const KYWashSystem = () => {
 
         {/* Admin Panel */}
         {currentView === 'admin' && !user && (
-          <div className="space-y-6">
-            <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Admin Panel</h1>
+          <div className={`space-y-6 min-h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-50'} p-6 rounded-lg`}>
+            <div className="flex justify-between items-center mb-6">
+              <h1 className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Admin Panel</h1>
+              <button
+                onClick={() => setDarkMode(!darkMode)}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2 ${
+                  darkMode
+                    ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                    : 'bg-gray-800 hover:bg-gray-700 text-white'
+                }`}
+              >
+                {darkMode ? '☀️ Light Mode' : '🌙 Dark Mode'}
+              </button>
+            </div>
 
             {/* Machine Lock Control */}
             <div className={`rounded-lg shadow-md p-6 transition-colors ${
               darkMode ? 'bg-gray-800' : 'bg-white'
             }`}>
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold flex items-center gap-2">
+                <h2 className={`text-2xl font-bold flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
                   <Lock className="w-6 h-6" />
                   Machine Lock Control
                 </h2>
@@ -1371,7 +1383,7 @@ const KYWashSystem = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Washers */}
                 <div>
-                  <h3 className="text-lg font-semibold mb-3">Washers</h3>
+                  <h3 className={`text-lg font-semibold mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>Washers</h3>
                   <div className="space-y-2">
                     {machines.filter((m: Machine) => m.type === 'washer').map((machine: Machine) => (
                       <div key={`washer-${machine.id}`} className={`flex items-center justify-between p-3 rounded transition-colors ${
@@ -1405,7 +1417,7 @@ const KYWashSystem = () => {
 
                 {/* Dryers */}
                 <div>
-                  <h3 className="text-lg font-semibold mb-3">Dryers</h3>
+                  <h3 className={`text-lg font-semibold mb-3 ${darkMode ? 'text-gray-200' : 'text-gray-800'}`}>Dryers</h3>
                   <div className="space-y-2">
                     {machines.filter((m: Machine) => m.type === 'dryer').map((machine: Machine) => (
                       <div key={`dryer-${machine.id}`} className={`flex items-center justify-between p-3 rounded transition-colors ${
