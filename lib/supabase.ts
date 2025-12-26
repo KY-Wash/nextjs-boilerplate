@@ -24,15 +24,17 @@ export const supabase = getSupabaseClient();
 // Type definitions for database tables
 export interface UsageRecord {
   id?: string;
-  studentId: string;
+  studentid: string;
   phone_number: string;
-  machineType: 'washer' | 'dryer';
-  machineId: number;
+  type: 'washer' | 'dryer';
+  machine_id: number;
   mode: string;
   duration: number;
   spending: number;
   status?: 'In Progress' | 'Completed' | 'cancelled';
   date: string;
+  day: string;
+  time: string;
   timestamp: number;
   created_at?: string;
   updated_at?: string;
@@ -50,15 +52,17 @@ export const insertUsageRecord = async (record: UsageRecord) => {
     const { data, error } = await client
       .from('usage_history')
       .insert([{
-        userStudentID: record.studentId,
+        studentid: record.studentid,
         phone_number: record.phone_number,
-        type: record.machineType,
-        machine_id: record.machineId,
+        type: record.type,
+        machine_id: record.machine_id,
         mode: record.mode,
         duration: record.duration,
         spending: record.spending,
         status: record.status,
         date: record.date,
+        day: record.day,
+        time: record.time,
         timestamp: record.timestamp,
       }]);
 
@@ -112,7 +116,7 @@ export const fetchUserUsageHistory = async (studentId: string) => {
     const { data, error } = await client
       .from('usage_history')
       .select('*')
-      .eq('student_id', studentId)
+      .eq('studentid', studentId)
       .order('timestamp', { ascending: false });
 
     if (error) {
