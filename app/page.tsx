@@ -2068,10 +2068,10 @@ const KYWashSystem = () => {
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex-1">
                             <p className={`font-semibold text-lg ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                              {fb.studentId}
+                              👤 Student ID: <span className={`${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>{fb.studentId}</span>
                             </p>
                             <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              {fb.date} - {fb.reportCount} report(s)
+                              📅 {fb.date} - 🚩 {fb.reportCount} report(s)
                             </p>
                             {fb.warnings > 0 && (
                               <p className={`text-sm font-bold ${darkMode ? 'text-orange-400' : 'text-orange-600'}`}>
@@ -2227,7 +2227,7 @@ const KYWashSystem = () => {
             </div>
 
             {/* Machines Grid */}
-            {currentView === 'main' && (
+            {currentView === 'main' && !showFeedback && (
               <>
                 {/* Washer Waitlist Section - Above Machines */}
                 <div className={`rounded-lg shadow-md p-6 transition-colors border-l-4 ${
