@@ -65,9 +65,21 @@ interface Waitlists {
   dryers: WaitlistEntry[];
 }
 
+interface Feedback {
+  id: string;
+  studentId: string;
+  studentName: string;
+  message: string;
+  timestamp: number;
+  date: string;
+  isDone: boolean;
+  reportCount: number;
+  warnings: number;
+}
+
 const KYWashSystem = () => {
   const [user, setUser] = useState<User | null>(null);
-  const [currentView, setCurrentView] = useState<'main' | 'admin' | 'history' | 'stats' | 'dryer-stats'>('main' as 'main' | 'admin' | 'history' | 'stats' | 'dryer-stats');
+  const [currentView, setCurrentView] = useState<'main' | 'admin' | 'history' | 'stats' | 'dryer-stats' | 'feedback'>('main' as 'main' | 'admin' | 'history' | 'stats' | 'dryer-stats' | 'feedback');
   const [showLogin, setShowLogin] = useState<boolean>(true);
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
   const [studentId, setStudentId] = useState<string>('');
@@ -114,6 +126,11 @@ const KYWashSystem = () => {
   const [selectedFilterYear, setSelectedFilterYear] = useState<number>(new Date().getFullYear());
   const [selectedFilterWeek, setSelectedFilterWeek] = useState<string>('all'); // 'all', 'monday', 'tuesday', etc.
   const [selectedFilterDayOfWeek, setSelectedFilterDayOfWeek] = useState<number>(-1); // -1 means all days
+  const [feedback, setFeedback] = useState<Feedback[]>([]);
+  const [feedbackMessage, setFeedbackMessage] = useState<string>('');
+  const [showFeedback, setShowFeedback] = useState<boolean>(false);
+  const [adminFeedbackTab, setAdminFeedbackTab] = useState<boolean>(false);
+  const [lockedMachines, setLockedMachines] = useState<Map<string, boolean>>(new Map());
 
   const washerModes: Mode[] = [
     { name: 'Normal', duration: 30 },
@@ -354,6 +371,27 @@ const KYWashSystem = () => {
     }
   }, [users]);
 
+  // Persist feedback to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('kyWashFeedback', JSON.stringify(feedback));
+    }
+  }, [feedback]);
+
+  // Persist locked machines to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const lockedMachinesObj: Record<string, boolean> = {};
+      machines.forEach((machine) => {
+        const machineKey = `${machine.type}-${machine.id}`;
+        if (machine.locked) {
+          lockedMachinesObj[machineKey] = true;
+        }
+      });
+      localStorage.setItem('kyWashLockedMachines', JSON.stringify(lockedMachinesObj));
+    }
+  }, [machines]);
+
   // Load usage history from localStorage on component mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -377,6 +415,29 @@ const KYWashSystem = () => {
           console.error('Failed to load users from localStorage:', error);
         }
       }
+
+      // Load feedback from localStorage if available
+      const savedFeedback = localStorage.getItem('kyWashFeedback');
+      if (savedFeedback) {
+        try {
+          const parsedFeedback = JSON.parse(savedFeedback);
+          setFeedback(parsedFeedback);
+        } catch (error) {
+          console.error('Failed to load feedback from localStorage:', error);
+        }
+      }
+
+      // Load locked machines from localStorage if available
+      const savedLockedMachines = localStorage.getItem('kyWashLockedMachines');
+      if (savedLockedMachines) {
+        try {
+          const parsedLockedMachines = JSON.parse(savedLockedMachines) as Record<string, boolean>;
+          const newLockedMachinesMap = new Map<string, boolean>(Object.entries(parsedLockedMachines));
+          setLockedMachines(newLockedMachinesMap);
+        } catch (error) {
+          console.error('Failed to load locked machines from localStorage:', error);
+        }
+      }
       
       // Load persisted user login if available
       const savedUser = localStorage.getItem('kyWashUser');
@@ -392,6 +453,24 @@ const KYWashSystem = () => {
       }
     }
   }, []);
+
+  // Apply locked machines from localStorage to machines state
+  useEffect(() => {
+    if (lockedMachines.size > 0) {
+      setMachines((prevMachines: Machine[]) => 
+        prevMachines.map((machine: Machine) => {
+          const machineKey = `${machine.type}-${machine.id}`;
+          const isLocked = lockedMachines.get(machineKey) || false;
+          if (isLocked && !machine.locked) {
+            return { ...machine, locked: true, status: 'maintenance' };
+          } else if (!isLocked && machine.locked && machine.status === 'maintenance') {
+            return { ...machine, locked: false, status: 'available' };
+          }
+          return machine;
+        })
+      );
+    }
+  }, [lockedMachines]);
 
   // Track machines that have already triggered completion notification
   const notifiedMachinesRef = useRef<Set<string>>(new Set());
@@ -877,6 +956,62 @@ const KYWashSystem = () => {
     if (!machine) return;
 
     showNotification(`You notified that you're coming to collect your clothes from ${machineType} ${machineId}.`);
+  };
+
+  // Feedback functions
+  const submitFeedback = (): void => {
+    if (!user || !feedbackMessage.trim()) {
+      setError('Please enter your feedback');
+      return;
+    }
+
+    const newFeedback: Feedback = {
+      id: `${Date.now()}-${Math.random()}`,
+      studentId: user.studentId,
+      studentName: user.studentId,
+      message: feedbackMessage,
+      timestamp: Date.now(),
+      date: new Date().toLocaleDateString(),
+      isDone: false,
+      reportCount: 0,
+      warnings: 0,
+    };
+
+    setFeedback((prev: Feedback[]) => [...prev, newFeedback]);
+    setFeedbackMessage('');
+    showNotification('Thank you for your feedback!');
+  };
+
+  const markFeedbackAsDone = (feedbackId: string): void => {
+    setFeedback((prev: Feedback[]) =>
+      prev.map((f: Feedback) =>
+        f.id === feedbackId ? { ...f, isDone: true } : f
+      )
+    );
+    showNotification('Feedback marked as done!');
+  };
+
+  const reportFeedback = (feedbackId: string): void => {
+    setFeedback((prev: Feedback[]) =>
+      prev.map((f: Feedback) => {
+        if (f.id === feedbackId) {
+          const newReportCount = f.reportCount + 1;
+          // If 3 reports are made, increase warnings and show warning
+          if (newReportCount >= 3 && f.warnings === 0) {
+            showNotification(`⚠️ WARNING: This feedback from ${f.studentId} has received multiple reports. Action may be taken.`);
+            return { ...f, reportCount: newReportCount, warnings: 1 };
+          }
+          return { ...f, reportCount: newReportCount };
+        }
+        return f;
+      })
+    );
+    showNotification('Feedback reported!');
+  };
+
+  const deleteFeedback = (feedbackId: string): void => {
+    setFeedback((prev: Feedback[]) => prev.filter((f: Feedback) => f.id !== feedbackId));
+    showNotification('Feedback deleted successfully!');
   };
 
   const calculateWaitTime = (position: number, type: string): number => {
@@ -1386,7 +1521,33 @@ const KYWashSystem = () => {
               </button>
             </div>
 
-            {/* Machine Lock Control */}
+            {/* Admin Tabs */}
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={() => setAdminFeedbackTab(false)}
+                className={`px-4 py-2 rounded-lg font-medium transition ${
+                  !adminFeedbackTab
+                    ? 'bg-blue-600 text-white'
+                    : darkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                🔧 Machine Management
+              </button>
+              <button
+                onClick={() => setAdminFeedbackTab(true)}
+                className={`px-4 py-2 rounded-lg font-medium transition ${
+                  adminFeedbackTab
+                    ? 'bg-blue-600 text-white'
+                    : darkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                💬 Feedback ({feedback.length})
+              </button>
+            </div>
+
+            {/* Machine Management Tab */}
+            {!adminFeedbackTab && (
+            <>
             <div className={`rounded-lg shadow-md p-6 transition-colors ${
               darkMode ? 'bg-gray-800' : 'bg-white'
             }`}>
@@ -1877,6 +2038,92 @@ const KYWashSystem = () => {
                 </div>
               )}
             </div>
+            </>
+            )}
+
+            {/* Feedback Tab */}
+            {adminFeedbackTab && (
+              <div className={`rounded-lg shadow-md p-6 transition-colors ${
+                darkMode ? 'bg-gray-800' : 'bg-white'
+              }`}>
+                <h2 className={`text-2xl font-bold mb-4 flex items-center gap-2 ${
+                  darkMode ? 'text-white' : 'text-gray-800'
+                }`}>
+                  💬 User Feedback ({feedback.length})
+                </h2>
+
+                {feedback.length === 0 ? (
+                  <p className={`${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No feedback yet</p>
+                ) : (
+                  <div className="space-y-4">
+                    {feedback.map((fb: Feedback) => (
+                      <div
+                        key={fb.id}
+                        className={`p-4 border rounded-lg transition-colors ${
+                          fb.warnings > 0
+                            ? darkMode ? 'bg-orange-900 border-orange-700' : 'bg-orange-50 border-orange-300'
+                            : darkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-300'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1">
+                            <p className={`font-semibold text-lg ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                              {fb.studentId}
+                            </p>
+                            <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                              {fb.date} - {fb.reportCount} report(s)
+                            </p>
+                            {fb.warnings > 0 && (
+                              <p className={`text-sm font-bold ${darkMode ? 'text-orange-400' : 'text-orange-600'}`}>
+                                ⚠️ Warning issued for multiple reports
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex gap-2 flex-wrap justify-end">
+                            {!fb.isDone && (
+                              <button
+                                onClick={() => markFeedbackAsDone(fb.id)}
+                                className={`px-3 py-1 rounded text-sm font-semibold transition-colors ${
+                                  darkMode ? 'bg-green-700 hover:bg-green-600 text-white' : 'bg-green-500 hover:bg-green-600 text-white'
+                                }`}
+                              >
+                                ✓ Mark Done
+                              </button>
+                            )}
+                            {fb.isDone && (
+                              <span className={`px-3 py-1 rounded text-sm font-semibold ${
+                                darkMode ? 'bg-green-900 text-green-400' : 'bg-green-100 text-green-800'
+                              }`}>
+                                ✓ Done
+                              </span>
+                            )}
+                            <button
+                              onClick={() => reportFeedback(fb.id)}
+                              className={`px-3 py-1 rounded text-sm font-semibold transition-colors ${
+                                darkMode ? 'bg-yellow-700 hover:bg-yellow-600 text-white' : 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                              }`}
+                            >
+                              🚩 Report ({fb.reportCount})
+                            </button>
+                            <button
+                              onClick={() => deleteFeedback(fb.id)}
+                              className={`px-3 py-1 rounded text-sm font-semibold transition-colors ${
+                                darkMode ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'
+                              }`}
+                            >
+                              <Trash2 className="w-4 h-4 inline" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className={`text-sm mt-3 ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                          {fb.message}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
               
             {/* Back to Login Button */}
             <div className="mt-8 flex justify-center">
@@ -1966,6 +2213,16 @@ const KYWashSystem = () => {
               >
                 <Edit2 className="w-4 h-4 inline mr-2" />
                 Profile
+              </button>
+              <button
+                onClick={() => setShowFeedback(!showFeedback)}
+                className={`px-4 py-2 rounded-lg font-medium transition ${
+                  showFeedback
+                    ? 'bg-blue-600 text-white'
+                    : darkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                💬 Feedback
               </button>
             </div>
 
@@ -2392,6 +2649,39 @@ const KYWashSystem = () => {
 
                 </div>
               </>
+            )}
+
+            {/* Feedback Section */}
+            {showFeedback && user && (
+              <div className={`rounded-lg shadow-md p-6 transition-colors ${
+                darkMode ? 'bg-gray-800' : 'bg-white'
+              }`}>
+                <h2 className={`text-2xl font-bold mb-4 ${
+                  darkMode ? 'text-white' : 'text-gray-800'
+                }`}>
+                  💬 We value your feedback and we would like to hear from you!
+                </h2>
+                <p className={`mb-4 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  Share your thoughts, suggestions, or report any issues to help us improve KY Wash.
+                </p>
+                <textarea
+                  value={feedbackMessage}
+                  onChange={(e) => setFeedbackMessage(e.target.value)}
+                  placeholder="Write your feedback here... (no word limit)"
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors resize-none ${
+                    darkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-black border-gray-300'
+                  }`}
+                  rows={5}
+                />
+                <button
+                  onClick={submitFeedback}
+                  className={`w-full mt-4 px-4 py-2 rounded-lg font-semibold transition-colors ${
+                    darkMode ? 'bg-blue-700 hover:bg-blue-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
+                >
+                  Submit Feedback
+                </button>
+              </div>
             )}
 
             {/* Usage History View */}
